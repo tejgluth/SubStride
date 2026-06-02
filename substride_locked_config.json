@@ -1,0 +1,50 @@
+{
+  "product": {
+    "product_name": "SubStride V1",
+    "app_name": "SubStride Lab",
+    "prototype_type": "beta testing prototype",
+    "priority_order": [
+      "accuracy",
+      "UX",
+      "scalable_codebase",
+      "demo_quality",
+      "speed"
+    ]
+  },
+  "hardware": {
+    "placement": "over-insole only",
+    "zones_per_foot": 16,
+    "pads": "physically separated",
+    "pods": "one full pod per foot",
+    "mcu": "Seeed XIAO ESP32S3",
+    "pressure_mux": "CD74HC4067",
+    "adc": "MCP3208",
+    "imu": "LSM6DSOX",
+    "storage_primary": "SD card",
+    "storage_fallback": "ESP32S3 flash for metadata/short diagnostics only",
+    "battery_gauge_mvp": false,
+    "deep_sleep": true,
+    "button": true,
+    "led": true
+  },
+  "app": {
+    "platform": "React Native + Expo development build",
+    "orientation": "iOS-first beta",
+    "data": "local-first, Supabase-ready",
+    "ai": "OpenAI-ready stub; deterministic metrics required without AI"
+  },
+  "analytics": {
+    "main_score": "Training Strain",
+    "score_range": [
+      0,
+      100
+    ],
+    "baseline": {
+      "preliminary": 1,
+      "baseline_enabled": 3,
+      "mature": "5-7"
+    },
+    "scores_deterministic": true,
+    "ai_can_invent_metrics": false
+  }
+}

@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+
+# Node / TypeScript
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+coverage/
+.turbo/
+.cache/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+**/.expo/
+ios/
+android/
+DerivedData/
+*.jsbundle
+
+# Xcode / CocoaPods
+**/ios/Pods/
+**/ios/build/
+**/ios/DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# PlatformIO / firmware build output
+.pio/
+**/.pio/
+
+# Generated app artifacts
+*.ipa
+*.apk
+*.aab

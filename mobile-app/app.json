@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "SubStride Lab",
+    "slug": "substride-lab",
+    "scheme": "substride",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "lab.substride.mobile",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "SubStride Lab connects to SubStride pods after a run to sync locally recorded sensor logs.",
+        "NSBluetoothPeripheralUsageDescription": "SubStride Lab connects to SubStride pods after a run to sync locally recorded sensor logs."
+      }
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": []
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "extra": {
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "openAiApiKey": ""
+    }
+  }
+}
