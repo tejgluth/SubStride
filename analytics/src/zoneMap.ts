@@ -38,9 +38,50 @@ export function reorderChannelsByZone(rawPressure: number[], channelMap = zoneMa
   return channelMap.map((zone) => rawPressure[zone.defaultChannelIndex] ?? 0);
 }
 
+/**
+ * Returns the canonical zone map with medial<->lateral side labels flipped.
+ * The longitudinal (heel/midfoot/forefoot/toe) group is left-right invariant and
+ * therefore unchanged. Used to describe a foot whose insole is the physical mirror
+ * of the reference (right) layout while keeping identical channel numbering.
+ */
 export function mirroredZoneMap(): ZoneDefinition[] {
   return zoneMap.map((zone) => {
     const side = zone.side === "medial" ? "lateral" : zone.side === "lateral" ? "medial" : zone.side;
     return { ...zone, side, mirrorOf: zone.id };
   });
+}
+
+/**
+ * How the LEFT pod's pressure channels relate to anatomy.
+ *
+ * - "mirrored": the left insole is the physical mirror of the right insole and both
+ *   pods use identical channel numbering, so channel `c` on the left foot lands on the
+ *   medial/lateral-OPPOSITE pad vs the right foot. Side labels must be flipped.
+ * - "anatomical": each pad is wired to the SAME anatomical channel on both feet
+ *   (e.g. medial-heel is always channel 0). No flip needed.
+ *
+ * THIS IS A HARDWARE ASSUMPTION. It cannot be verified without the real pods.
+ * Confirm with the single-pad poke test on a LEFT pod (HARDWARE_BRINGUP_CHECKLIST §B)
+ * before trusting any medial/lateral or balance metric for the left foot.
+ */
+export type LeftFootChannelLayout = "mirrored" | "anatomical";
+
+/** Documented default until hardware confirms the wiring. See above. */
+export const DEFAULT_LEFT_FOOT_LAYOUT: LeftFootChannelLayout = "mirrored";
+
+/** Set to true only after the left-pod poke test passes. Gates left-foot side confidence. */
+export const LEFT_FOOT_LAYOUT_VERIFIED = false;
+
+/**
+ * Resolve the zone map (channel -> anatomy) to use for a given foot.
+ * Only the medial/lateral side classification can differ between feet; channel
+ * indices and longitudinal regions are identical. Right/unknown feet always use the
+ * reference map.
+ */
+export function resolveZoneMapForFoot(
+  foot: "left" | "right" | "unknown",
+  layout: LeftFootChannelLayout = DEFAULT_LEFT_FOOT_LAYOUT
+): ZoneDefinition[] {
+  if (foot === "left" && layout === "mirrored") return mirroredZoneMap();
+  return zoneMap;
 }

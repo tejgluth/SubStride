@@ -32,11 +32,20 @@ export function buildBaseline(userId: string, runs: BaselineInputRun[]): Baselin
 
   const metricsToCollect = {
     trainingStrain: (run: BaselineInputRun) => run.metrics.trainingStrain.value,
+    mechanicalLoadScore: (run: BaselineInputRun) => run.metrics.mechanicalLoad?.value.score0To100,
+    perceivedLoadRaw: (run: BaselineInputRun) => run.metrics.perceivedLoad?.value.rawRpeMinutes,
+    perceivedLoadScore: (run: BaselineInputRun) => run.metrics.perceivedLoad?.value.score0To100,
+    totalTrainingLoadScore: (run: BaselineInputRun) => run.metrics.totalTrainingLoad?.value.score0To100,
     cadence: (run: BaselineInputRun) => run.metrics.cadence.value,
     contactTime: (run: BaselineInputRun) => run.metrics.contactTime.value,
     impactLoad: (run: BaselineInputRun) => run.metrics.impactLoad.value,
     fatigueShift: (run: BaselineInputRun) => run.metrics.fatigueShift.value,
-    medialLateralBalance: (run: BaselineInputRun) => run.metrics.medialLateralBalance.value
+    medialLateralBalance: (run: BaselineInputRun) => run.metrics.medialLateralBalance.value,
+    cumulativeLoad: (run: BaselineInputRun) => run.metrics.cumulativeLoad.value,
+    // Load per step (foot-count invariant). Mechanical Load's baseline volume factor compares the
+    // current run's per-step load to this mean (like-to-like, replacing the old unit-mismatched factor).
+    cumulativeLoadPerStep: (run: BaselineInputRun) =>
+      run.metrics.cumulativeLoad.value / Math.max(1, run.metrics.steps.length)
   };
 
   const metrics: BaselineSummary["metrics"] = {};

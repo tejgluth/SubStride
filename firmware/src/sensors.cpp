@@ -4,6 +4,7 @@
 #include <SPI.h>
 #include <Wire.h>
 
+#include "config.h"
 #include "pin_map.h"
 
 static Adafruit_LSM6DSOX lsm6dsox;
@@ -37,7 +38,8 @@ void SensorSuite::selectMux(uint8_t channel) {
   digitalWrite(PIN_MUX_S1, (channel >> 1) & 0x01);
   digitalWrite(PIN_MUX_S2, (channel >> 2) & 0x01);
   digitalWrite(PIN_MUX_S3, (channel >> 3) & 0x01);
-  delayMicroseconds(3);
+  // Allow the mux output + ADC sample cap to settle. Tune kMuxSettleMicros on hardware.
+  delayMicroseconds(kMuxSettleMicros);
 }
 
 uint16_t SensorSuite::readMcp3208(uint8_t channel) {
@@ -69,6 +71,11 @@ void SensorSuite::readPressure(uint16_t pressure[16], bool simulatorMode, uint32
     selectMux(muxChannel);
     // The current hardware path reads one mux output through MCP3208 channel 0.
     // If the board is revised to spread zones across ADC channels, update this mapping only.
+    // Discard the first conversion(s) after a channel switch so the previous channel's charge
+    // does not bleed into this reading (crosstalk). Tune kMuxDiscardSamples on hardware.
+    for (uint8_t discard = 0; discard < kMuxDiscardSamples; ++discard) {
+      (void)readMcp3208(0);
+    }
     pressure[muxChannel] = readMcp3208(0);
   }
 }

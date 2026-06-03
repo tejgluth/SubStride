@@ -26,7 +26,10 @@ const DISTRIBUTION_LABELS: Record<string, string> = {
 
 export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: Props) {
   const { session, metrics, explanation, context, activeShoe, baseline } = computed;
-  const category = scoreCategory(metrics.trainingStrain.value);
+  const totalLoad = metrics.totalTrainingLoad.value;
+  const mechanicalLoad = metrics.mechanicalLoad.value;
+  const perceivedLoad = metrics.perceivedLoad.value;
+  const category = scoreCategory(totalLoad.score0To100);
   const dist = metrics.heelMidForeToeDistribution.value;
   const podSummary = connectionSummary(computed.connectedPods);
 
@@ -64,15 +67,61 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
         </Text>
       </Section>
 
-      {/* Hero: Training Strain */}
+      {/* Hero: Total Training Load (gated on confidence) */}
       <Section>
         <View style={styles.heroContent}>
-          <ScoreRing score={metrics.trainingStrain.value} category={category} size={128} />
+          {metrics.confidence.scoreShowable ? (
+            <>
+              <ScoreRing score={totalLoad.score0To100} category={category} size={128} label="Total Load" />
+              {metrics.confidence.level !== 'high' ? (
+                <Text style={styles.confidenceNote}>
+                  Confidence: {metrics.confidence.level}
+                  {metrics.confidence.reasonCodes.length ? ` · ${metrics.confidence.reasonCodes.join(', ')}` : ''}
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.blockedBox}>
+              <Text style={styles.blockedTitle}>Training Load unavailable</Text>
+              <Text style={styles.blockedText}>
+                This run's data quality is too low for a confident score
+                {metrics.confidence.blocking.length ? `: ${metrics.confidence.blocking.join(', ')}` : ''}.
+                Re-run calibration and record a longer, cleaner session. Raw data is still in the Validation tab.
+              </Text>
+            </View>
+          )}
           <View style={styles.heroDivider} />
           <View style={styles.heroRight}>
             <Text style={styles.explanationText}>{explanation}</Text>
           </View>
         </View>
+      </Section>
+
+      <Section title="Training load breakdown" subtitle="Beta load uses SubStride mechanical data plus your entered effort">
+        <MetricRow
+          label="Total Training Load"
+          value={`${totalLoad.score0To100}/100`}
+          detail={
+            totalLoad.missingStreams.includes('perceived')
+              ? 'Mechanical-only estimate because effort was not supplied'
+              : `Weighted ${Math.round(totalLoad.weights.mechanical * 100)}% mechanical + ${Math.round(totalLoad.weights.perceived * 100)}% perceived`
+          }
+          accent
+        />
+        <MetricRow
+          label="Mechanical Load"
+          value={`${mechanicalLoad.score0To100}/100`}
+          detail={`Relative dose ${mechanicalLoad.rawDose.toFixed(0)} · ${mechanicalLoad.dosePer1000Steps.toFixed(0)} per 1k steps`}
+        />
+        <MetricRow
+          label="Perceived Load"
+          value={perceivedLoad.score0To100 == null ? 'Not set' : `${perceivedLoad.score0To100}/100`}
+          detail={
+            perceivedLoad.rawRpeMinutes == null
+              ? 'Enter effort after the run to include RPE-minutes'
+              : `${perceivedLoad.rawRpeMinutes.toFixed(0)} RPE-minutes · effort ${perceivedLoad.rpe0To10}/10`
+          }
+        />
       </Section>
 
       {/* Key run metrics */}
@@ -106,11 +155,11 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
 
       {/* Category scores */}
       <Section title="Category scores" subtitle="Relative load indicators — not medical measurements">
-        <CategoryScoreBar label="Load balance" value={metrics.categoryScores.loadBalance.value} sublabel="Medial vs. lateral relative load" />
+        <CategoryScoreBar label="Load balance" value={metrics.categoryScores.loadBalance.value} sublabel="Medial vs. lateral relative load" higherIsBetter />
         <CategoryScoreBar label="Impact load" value={metrics.categoryScores.impactLoad.value} sublabel="Pressure + IMU impact proxy" />
-        <CategoryScoreBar label="Forefoot / metatarsal" value={metrics.categoryScores.forefootMetatarsalLoad.value} sublabel="Forefoot zone load fraction" />
+        <CategoryScoreBar label="Forefoot / metatarsal" value={metrics.categoryScores.forefootMetatarsalLoad.value} sublabel="Forefoot zone load fraction" higherIsBetter />
         <CategoryScoreBar label="Heel load" value={metrics.categoryScores.heelLoad.value} sublabel="Heel zone load fraction" />
-        <CategoryScoreBar label="Arch / midfoot" value={metrics.categoryScores.archMidfootLoad.value} sublabel="Midfoot zone load fraction" />
+        <CategoryScoreBar label="Arch / midfoot" value={metrics.categoryScores.archMidfootLoad.value} sublabel="Midfoot zone load fraction" higherIsBetter />
         <CategoryScoreBar label="Toe-off contribution" value={metrics.categoryScores.toeOffContribution.value} sublabel="Toe zone during late stance" />
         <CategoryScoreBar label="Fatigue proxy" value={metrics.categoryScores.fatigueShift.value} sublabel="Forefoot load shift over run" />
       </Section>
@@ -147,8 +196,8 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
       {/* Limitations notice */}
       <View style={styles.notice}>
         <Text style={styles.noticeText}>
-          These are experimental beta indicators. Training Strain reflects relative load and gait patterns
-          compared to personal baseline when available. These metrics are not medical-grade measurements
+          These are experimental beta indicators. Total Training Load combines Mechanical Load and
+          Perceived Load when available. These metrics are not medical-grade measurements
           and should not be used as clinical guidance. Consult a professional for persistent pain or injury concern.
         </Text>
       </View>
@@ -169,6 +218,10 @@ const styles = StyleSheet.create({
   heroContent: { gap: 20 },
   heroDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.borderLight },
   heroRight: { gap: 10 },
+  confidenceNote: { fontSize: 11, color: colors.textTertiary, textAlign: 'center', lineHeight: 16 },
+  blockedBox: { padding: 14, borderRadius: radius.md, backgroundColor: colors.bgCardAlt, borderWidth: 1, borderColor: colors.border, gap: 6 },
+  blockedTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+  blockedText: { fontSize: 12, lineHeight: 18, color: colors.textSecondary },
   explanationText: { fontSize: 13, lineHeight: 20, color: colors.textSecondary },
   distRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: 110, marginBottom: 12 },
   distCell: { alignItems: 'center', gap: 6, flex: 1 },

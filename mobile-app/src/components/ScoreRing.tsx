@@ -1,11 +1,12 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { scoreColor } from '../theme';
+import { scoreGradientColor } from '../theme';
 
 interface Props {
   score: number;
   category: string;
   size?: number;
+  label?: string;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -15,8 +16,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   very_high: 'Very High',
 };
 
-export function ScoreRing({ score, category, size = 120 }: Props) {
-  const color = scoreColor(category);
+export function ScoreRing({ score, category: _category, size = 120, label = 'Training Load' }: Props) {
+  const color = scoreGradientColor(score);
   const radius = size / 2;
   const fontSize = size * 0.3;
   const borderWidth = size * 0.05;
@@ -38,8 +39,8 @@ export function ScoreRing({ score, category, size = 120 }: Props) {
         <Text style={[styles.score, { fontSize, color }]}>{score}</Text>
         <Text style={[styles.unit, { color: color + 'aa', fontSize: size * 0.1 }]}>/ 100</Text>
       </View>
-      <Text style={[styles.category, { color }]}>{CATEGORY_LABELS[category] ?? category}</Text>
-      <Text style={styles.label}>Training Strain</Text>
+      <Text style={[styles.category, { color }]}>{CATEGORY_LABELS[_category] ?? _category}</Text>
+      <Text style={styles.label}>{label}</Text>
     </View>
   );
 }

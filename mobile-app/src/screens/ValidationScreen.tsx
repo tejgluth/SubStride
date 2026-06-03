@@ -19,7 +19,16 @@ export function ValidationScreen({ metrics, calibration, frames }: Props) {
     : 0;
   const sampleRateHz = durationMs > 0 ? ((frames.length - 1) / (durationMs / 1000)).toFixed(1) : '—';
   const qualityFrames = frames.filter((f) => f.qualityFlags.length === 0).length;
-  const packetLossEst = (1 - qualityFrames / Math.max(1, frames.length));
+  // Packet loss is about MISSING samples (sequence gaps), not quality-flagged frames. The old
+  // formula treated every calibration-warning frame as a lost packet (could read 100%).
+  let sequenceGaps = 0;
+  for (let i = 1; i < frames.length; i += 1) {
+    const delta = frames[i].sequence - frames[i - 1].sequence;
+    if (delta > 1) sequenceGaps += delta - 1;
+  }
+  const expectedFrames = frames.length + sequenceGaps;
+  const packetLossEst = expectedFrames > 0 ? sequenceGaps / expectedFrames : 0;
+  const flaggedFrameFraction = 1 - qualityFrames / Math.max(1, frames.length);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
@@ -41,9 +50,19 @@ export function ValidationScreen({ metrics, calibration, frames }: Props) {
           detail="Frames with no quality flags"
         />
         <MetricRow
+          label="Flagged frames"
+          value={`${(flaggedFrameFraction * 100).toFixed(1)}%`}
+          detail="Frames carrying a calibration/load quality flag"
+        />
+        <MetricRow
           label="Packet loss estimate"
           value={`${(packetLossEst * 100).toFixed(1)}%`}
-          detail="Frames with quality flags / total"
+          detail="Missing samples inferred from sequence-number gaps"
+        />
+        <MetricRow
+          label="Confidence"
+          value={metrics.confidence.level}
+          detail={metrics.confidence.reasonCodes.join(', ') || 'no reductions'}
         />
         <MetricRow label="Steps detected" value={`${metrics.steps.length}`} />
       </Section>
@@ -93,7 +112,14 @@ export function ValidationScreen({ metrics, calibration, frames }: Props) {
         <MetricRow label="Medial/lateral balance" value={`${metrics.medialLateralBalance.value.toFixed(1)}/100`} />
         <MetricRow label="Impact load" value={`${metrics.impactLoad.value.toFixed(3)}`} />
         <MetricRow label="Fatigue shift" value={`${metrics.fatigueShift.value.toFixed(2)} pp`} />
-        <MetricRow label="Training Strain" value={`${metrics.trainingStrain.value}/100`} />
+        <MetricRow label="Mechanical Load" value={`${metrics.mechanicalLoad.value.score0To100}/100`} detail={`Raw dose ${metrics.mechanicalLoad.value.rawDose.toFixed(0)}`} />
+        <MetricRow
+          label="Perceived Load"
+          value={metrics.perceivedLoad.value.score0To100 == null ? 'Not set' : `${metrics.perceivedLoad.value.score0To100}/100`}
+          detail={metrics.perceivedLoad.value.rawRpeMinutes == null ? 'No RPE-minutes' : `${metrics.perceivedLoad.value.rawRpeMinutes.toFixed(0)} RPE-minutes`}
+        />
+        <MetricRow label="Total Training Load" value={`${metrics.totalTrainingLoad.value.score0To100}/100`} />
+        <MetricRow label="Training Strain alias" value={`${metrics.trainingStrain.value}/100`} />
       </Section>
 
       {/* Category scores raw */}

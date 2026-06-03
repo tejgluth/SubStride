@@ -30,8 +30,8 @@ export function PostRunScreen({ computed, shoes, onUpdateContext, onSaveSession,
       <Section title="Post-run check-in" subtitle="These answers are saved with the session for trends and baselines">
         <View style={styles.summaryRow}>
           <View style={styles.summaryCell}>
-            <Text style={styles.summaryValue}>{metrics.trainingStrain.value}</Text>
-            <Text style={styles.summaryLabel}>Strain</Text>
+            <Text style={styles.summaryValue}>{metrics.totalTrainingLoad.value.score0To100}</Text>
+            <Text style={styles.summaryLabel}>Load</Text>
           </View>
           <View style={styles.summaryCell}>
             <Text style={styles.summaryValue}>{metrics.steps.length}</Text>

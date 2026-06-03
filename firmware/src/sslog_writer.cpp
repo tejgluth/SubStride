@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <SPI.h>
 
+#include "config.h"
 #include "crc32.h"
 #include "pin_map.h"
 
@@ -57,7 +58,7 @@ bool SslogWriter::startSession(const SessionMetadata& metadata) {
   return true;
 }
 
-void SslogWriter::writeHeader(uint32_t frameCount) {
+void SslogWriter::writeHeader(uint32_t frameCount, bool cleanClose) {
   uint8_t header[SSLOG_HEADER_LENGTH] = {0};
   writeFixed(header, 0, 8, "SSLOG1");
   setU16(header, 8, SSLOG_VERSION);
@@ -73,14 +74,16 @@ void SslogWriter::writeHeader(uint32_t frameCount) {
   writeFixed(header, 95, 16, _metadata.hardwareRevision);
   writeFixed(header, 111, 16, _metadata.firmwareVersion);
   writeFixed(header, 127, 32, _metadata.calibrationProfileId);
-  header[159] = _metadata.flags;
+  uint8_t flags = _metadata.flags;
+  if (cleanClose) flags |= SSLOG_FLAG_CLEAN_CLOSE;
+  header[159] = flags;
   setU32(header, 160, crc32_bytes(header, 160));
   _file.seek(0);
   _file.write(header, sizeof(header));
 }
 
-void SslogWriter::updateHeaderFrameCount() {
-  writeHeader(_frameCount);
+void SslogWriter::updateHeaderFrameCount(bool cleanClose) {
+  writeHeader(_frameCount, cleanClose);
   _file.seek(_file.size());
 }
 
@@ -103,7 +106,13 @@ bool SslogWriter::appendFrame(const PressureImuFrame& frame) {
   const size_t written = _file.write(bytes, sizeof(bytes));
   if (written == sizeof(bytes)) {
     _frameCount++;
-    if (_frameCount % 100 == 0) _file.flush();
+    // Flush frame data periodically, but do not rewrite the header while recording. A power cut
+    // during an in-place header rewrite can corrupt the header CRC and jeopardize the whole file.
+    // The decoder derives recoverable frame count from file size; final frameCount is stamped only
+    // on clean close.
+    if (_frameCount % kSessionFlushEveryFrames == 0) {
+      _file.flush();
+    }
     return true;
   }
   return false;
@@ -132,7 +141,7 @@ void SslogWriter::writeManifest(const char* status) {
 
 bool SslogWriter::finishSession() {
   if (!_open) return true;
-  updateHeaderFrameCount();
+  updateHeaderFrameCount(true); // stamp clean-close flag + final frame count
   _file.flush();
   _file.close();
   writeManifest("closed");

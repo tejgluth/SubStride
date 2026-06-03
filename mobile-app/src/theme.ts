@@ -43,6 +43,24 @@ export function scoreColor(category: string): string {
   return colors.scoreVeryHigh;
 }
 
+// Continuous green→amber→red gradient. Pass higherIsBetter=true to invert (green at high values).
+export function scoreGradientColor(score: number, higherIsBetter = false): string {
+  const s = higherIsBetter ? 100 - score : score;
+  const t = Math.max(0, Math.min(1, s / 100));
+  if (t <= 0.5) {
+    const u = t / 0.5;
+    const r = Math.round(22 + u * (245 - 22));
+    const g = Math.round(163 + u * (158 - 163));
+    const b = Math.round(74 + u * (11 - 74));
+    return `rgb(${r},${g},${b})`;
+  }
+  const u = (t - 0.5) / 0.5;
+  const r = Math.round(245 + u * (220 - 245));
+  const g = Math.round(158 + u * (38 - 158));
+  const b = Math.round(11 + u * (38 - 11));
+  return `rgb(${r},${g},${b})`;
+}
+
 export function heatColor(intensity: number): string {
   const t = Math.max(0, Math.min(1, intensity));
   if (t < 0.35) {

@@ -69,8 +69,29 @@ describe('mobile beta app model', () => {
 
     const computed = buildRunComputation(state, 'normal_easy_run', { durationSeconds: 5 });
 
-    expect(computed.baseline.includedRunCount).toBe(4);
+    expect(computed.baseline.includedRunCount).toBe(3);
     expect(computed.baseline.status).toBe('baseline_enabled');
     expect(computed.history).toHaveLength(4);
+  });
+
+  it('exposes timestamp-aware longitudinal load for the trends screen', () => {
+    const state = createDefaultBetaAppState();
+    const first = buildRunComputation(state, 'normal_easy_run', {
+      durationSeconds: 45,
+      asOf: '2026-06-01T12:00:00.000Z',
+    });
+    state.sessionHistory = [first.sessionRecord];
+
+    const near = buildRunComputation(state, 'normal_easy_run', {
+      durationSeconds: 45,
+      asOf: '2026-06-01T14:00:00.000Z',
+    });
+    const later = buildRunComputation(state, 'normal_easy_run', {
+      durationSeconds: 45,
+      asOf: '2026-06-06T12:00:00.000Z',
+    });
+
+    expect(near.longitudinalLoad.total.acute).toBeGreaterThan(later.longitudinalLoad.total.acute);
+    expect(near.longitudinalLoad.timeline.at(-1)?.sessionId).toBeUndefined();
   });
 });

@@ -28,9 +28,36 @@ export interface EncodeSslogInput extends Omit<SslogHeader, "version" | "frameCo
   frames: RawFrame[];
 }
 
+export const SSLOG_FLAG_SIMULATED = 0x01;
+export const SSLOG_FLAG_CLEAN_CLOSE = 0x02;
+
+export type SslogDecodeStatus = "ok" | "partial" | "empty";
+
+export interface SslogDecodeReport {
+  /** "ok" = every physically present frame decoded; "partial" = stopped early (crash/corruption). */
+  status: SslogDecodeStatus;
+  /** Frame count declared in the header (0 when the writer never closed the file cleanly). */
+  framesDeclared: number;
+  /** Frames physically present given the file size: floor((size - headerLen) / frameLen). */
+  framesAvailable: number;
+  /** Frames actually decoded (before the first fault when allowPartial). */
+  framesDecoded: number;
+  /** Indices of frames whose CRC did not match. */
+  crcFailures: number[];
+  /** True when the file ends mid-frame (torn final write / power loss). */
+  truncated: boolean;
+  /** True when the header declared count disagrees with frames physically present. */
+  countMismatch: boolean;
+  /** True when the firmware set the clean-close flag at finishSession(). */
+  cleanClose: boolean;
+  /** False when allowPartial recovered a log whose header CRC was damaged. */
+  headerCrcValid: boolean;
+}
+
 export interface DecodedSslog {
   header: SslogHeader;
   frames: RawFrame[];
+  decode: SslogDecodeReport;
 }
 
 export class SslogCrcError extends Error {
@@ -120,8 +147,21 @@ export function encodeSslog(input: EncodeSslogInput): Uint8Array {
   return bytes;
 }
 
-export function decodeSslog(bytes: Uint8Array, options: { verifyCrc?: boolean } = {}): DecodedSslog {
+export interface DecodeSslogOptions {
+  /** Verify per-frame and header CRC32 (default true). */
+  verifyCrc?: boolean;
+  /**
+   * Recover every good frame before the first fault instead of throwing (default false).
+   * Use this for real synced logs where a power loss may have torn the final frame or the
+   * writer never wrote a clean frame count. With allowPartial=false the decoder throws on
+   * the first CRC failure or truncation (strict mode, used by tests).
+   */
+  allowPartial?: boolean;
+}
+
+export function decodeSslog(bytes: Uint8Array, options: DecodeSslogOptions = {}): DecodedSslog {
   const verifyCrc = options.verifyCrc ?? true;
+  const allowPartial = options.allowPartial ?? false;
   if (bytes.length < SSLOG_HEADER_LENGTH) {
     throw new Error(`SSLOG too short: ${bytes.length} bytes`);
   }
@@ -132,25 +172,31 @@ export function decodeSslog(bytes: Uint8Array, options: { verifyCrc?: boolean } 
     throw new Error(`Invalid SSLOG magic: ${magic}`);
   }
 
-  const headerCrc = view.getUint32(160, true);
-  if (verifyCrc && headerCrc !== crc32(bytes, 0, 160)) {
-    throw new SslogCrcError("Header CRC mismatch");
-  }
-
   const headerLength = view.getUint16(10, true);
   const frameLength = view.getUint16(12, true);
-  const frameCount = view.getUint32(14, true);
   if (headerLength !== SSLOG_HEADER_LENGTH || frameLength !== SSLOG_FRAME_LENGTH) {
     throw new Error(`Unsupported SSLOG layout header=${headerLength} frame=${frameLength}`);
   }
-  const expectedLength = headerLength + frameCount * frameLength;
-  if (bytes.length < expectedLength) {
-    throw new Error(`SSLOG truncated: expected ${expectedLength} bytes, received ${bytes.length}`);
+
+  const headerCrc = view.getUint32(160, true);
+  const headerCrcValid = !verifyCrc || headerCrc === crc32(bytes, 0, 160);
+  if (!headerCrcValid && !allowPartial) {
+    throw new SslogCrcError("Header CRC mismatch");
   }
+
+  const declaredFrameCount = view.getUint32(14, true);
+
+  const flags = view.getUint8(159);
+  // Frames physically present is derived from the file size, NOT the header count, because a
+  // pod that lost power mid-run never patched the header count (it stays 0) even though valid
+  // frames are on disk. Trusting the header count would silently discard a whole run.
+  const framesAvailable = Math.max(0, Math.floor((bytes.length - headerLength) / frameLength));
+  const truncated = bytes.length > headerLength && (bytes.length - headerLength) % frameLength !== 0;
+  const countMismatch = declaredFrameCount !== framesAvailable;
 
   const header: SslogHeader = {
     version: view.getUint16(8, true),
-    frameCount,
+    frameCount: declaredFrameCount,
     startedAtUnixMs: view.getFloat64(18, true),
     podId: readFixedString(bytes, 26, 24),
     sessionId: readFixedString(bytes, 50, 40),
@@ -160,15 +206,29 @@ export function decodeSslog(bytes: Uint8Array, options: { verifyCrc?: boolean } 
     hardwareRevision: readFixedString(bytes, 95, 16),
     firmwareVersion: readFixedString(bytes, 111, 16),
     calibrationProfileId: readFixedString(bytes, 127, 32),
-    flags: view.getUint8(159)
+    flags
   };
 
+  if (!allowPartial && truncated) {
+    throw new Error(`SSLOG truncated: trailing ${(bytes.length - headerLength) % frameLength} bytes are not a whole frame`);
+  }
+
   const frames: RawFrame[] = [];
-  for (let i = 0; i < frameCount; i += 1) {
+  const crcFailures: number[] = [];
+  let stoppedEarly = false;
+
+  for (let i = 0; i < framesAvailable; i += 1) {
     const offset = headerLength + i * frameLength;
     const frameCrc = view.getUint32(offset + 54, true);
     if (verifyCrc && frameCrc !== crc32(bytes, offset, offset + 54)) {
-      throw new SslogCrcError(`Frame ${i} CRC mismatch`);
+      crcFailures.push(i);
+      if (!allowPartial) {
+        throw new SslogCrcError(`Frame ${i} CRC mismatch`);
+      }
+      // Treat the first corrupt frame as the end of trustworthy data: everything after a
+      // torn write is suspect, so stop and report a partial decode.
+      stoppedEarly = true;
+      break;
     }
     const pressureRaw: number[] = [];
     for (let channel = 0; channel < 16; channel += 1) {
@@ -195,5 +255,74 @@ export function decodeSslog(bytes: Uint8Array, options: { verifyCrc?: boolean } 
     });
   }
 
-  return { header, frames };
+  const status: SslogDecodeStatus = frames.length === 0
+    ? "empty"
+    : stoppedEarly || truncated || frames.length < framesAvailable || !headerCrcValid
+      ? "partial"
+      : "ok";
+
+  return {
+    header,
+    frames,
+    decode: {
+      status,
+      framesDeclared: declaredFrameCount,
+      framesAvailable,
+      framesDecoded: frames.length,
+      crcFailures,
+      truncated,
+      countMismatch,
+      cleanClose: (flags & SSLOG_FLAG_CLEAN_CLOSE) !== 0,
+      headerCrcValid
+    }
+  };
+}
+
+export interface DecodedSessionValidation {
+  ok: boolean;
+  issues: string[];
+  monotonicTimestamps: boolean;
+  measuredSampleRateHz: number | null;
+  outOfAdcRangeFrames: number;
+  sequenceGaps: number;
+}
+
+/**
+ * Structural sanity checks on decoded frames BEFORE analytics. This is the integrity gate:
+ * analytics must not run on a session that fails the hard checks (wrong zone length, non-finite
+ * values). Softer issues (non-monotonic timestamps, sequence gaps, out-of-ADC-range values) are
+ * reported so confidence scoring can react.
+ */
+export function validateDecodedSession(decoded: DecodedSslog): DecodedSessionValidation {
+  const issues: string[] = [];
+  const { frames } = decoded;
+  if (frames.length === 0) {
+    return { ok: false, issues: ["no_frames"], monotonicTimestamps: true, measuredSampleRateHz: null, outOfAdcRangeFrames: 0, sequenceGaps: 0 };
+  }
+
+  let monotonic = true;
+  let sequenceGaps = 0;
+  let outOfRange = 0;
+  for (let i = 0; i < frames.length; i += 1) {
+    const frame = frames[i];
+    if (frame.pressureRaw.length !== 16) issues.push(`frame_${i}_zone_count_${frame.pressureRaw.length}`);
+    if (frame.pressureRaw.some((v) => !Number.isFinite(v))) issues.push(`frame_${i}_non_finite_pressure`);
+    if (frame.pressureRaw.some((v) => v < 0 || v > 4095)) outOfRange += 1; // MCP3208 is 12-bit
+    if (i > 0) {
+      if (frame.timestampMs < frames[i - 1].timestampMs) monotonic = false;
+      if (frame.sequence > frames[i - 1].sequence + 1) sequenceGaps += frame.sequence - frames[i - 1].sequence - 1;
+    }
+  }
+  if (!monotonic) issues.push("non_monotonic_timestamps");
+  if (outOfRange > 0) issues.push(`out_of_adc_range_${outOfRange}_frames`);
+
+  const spanMs = frames[frames.length - 1].timestampMs - frames[0].timestampMs;
+  const measuredSampleRateHz = spanMs > 0 ? Math.round(((frames.length - 1) / (spanMs / 1000)) * 10) / 10 : null;
+  if (measuredSampleRateHz !== null && (measuredSampleRateHz < 20 || measuredSampleRateHz > 1000)) {
+    issues.push(`implausible_sample_rate_${measuredSampleRateHz}`);
+  }
+
+  // Hard failures: any zone-count / non-finite issue invalidates analytics.
+  const hardFail = issues.some((issue) => issue.includes("zone_count") || issue.includes("non_finite") || issue === "no_frames");
+  return { ok: !hardFail, issues, monotonicTimestamps: monotonic, measuredSampleRateHz, outOfAdcRangeFrames: outOfRange, sequenceGaps };
 }

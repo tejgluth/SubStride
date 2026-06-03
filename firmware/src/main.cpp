@@ -30,6 +30,10 @@ static bool buttonWasDown = false;
 static uint32_t buttonDownAtMs = 0;
 static char podSerial[24] = "SS-POD-0001";
 static char footSide[8] = "unknown";
+static uint32_t bootCount = 0;
+// Wall-clock reconstruction: unixMs ≈ millis() + timeOffsetUnixMs once the phone has sent "time:".
+static int64_t timeOffsetUnixMs = 0;
+static bool timeSynced = false;
 
 static void loadSettings() {
   preferences.begin("substride", false);
@@ -37,6 +41,11 @@ static void loadSettings() {
   String storedFoot = preferences.getString("foot", kDefaultFootSide);
   strlcpy(podSerial, storedSerial.c_str(), sizeof(podSerial));
   strlcpy(footSide, storedFoot.c_str(), sizeof(footSide));
+  // Monotonic boot counter persisted in NVS. millis() resets to 0 after every deep-sleep wake,
+  // so without this two sessions started in different boot cycles could share an ID. The boot
+  // number disambiguates them.
+  bootCount = preferences.getUInt("boot", 0) + 1;
+  preferences.putUInt("boot", bootCount);
 }
 
 static void saveFoot(const char* foot) {
@@ -81,21 +90,27 @@ static void enterState(PodState next) {
 static void makeSessionMetadata(SessionMetadata& metadata) {
   memset(&metadata, 0, sizeof(metadata));
   strlcpy(metadata.podId, podSerial, sizeof(metadata.podId));
-  snprintf(metadata.sessionId, sizeof(metadata.sessionId), "%s-%lu", podSerial, static_cast<unsigned long>(millis()));
+  // Session ID = serial-bootCount-millis. The boot counter prevents collisions across deep-sleep
+  // reboots (when millis() restarts at 0). Two different pods never collide because the serial differs.
+  snprintf(metadata.sessionId, sizeof(metadata.sessionId), "%s-%lu-%lu", podSerial,
+           static_cast<unsigned long>(bootCount), static_cast<unsigned long>(millis()));
   strlcpy(metadata.foot, footSide, sizeof(metadata.foot));
   strlcpy(metadata.hardwareRevision, kHardwareRevision, sizeof(metadata.hardwareRevision));
   strlcpy(metadata.firmwareVersion, kFirmwareVersion, sizeof(metadata.firmwareVersion));
   strlcpy(metadata.calibrationProfileId, "uncalibrated-lab", sizeof(metadata.calibrationProfileId));
   metadata.pressureHz = kPressureSampleRateHz;
   metadata.imuHz = kImuSampleRateHz;
-  metadata.startedAtUnixMs = 0; // phone can reconcile from monotonic time if no pre-run time sync happened
-  metadata.flags = kSimulatorMode ? 0x01 : 0x00;
+  // Populated only if the phone sent the time before the run; 0 otherwise and the app reconciles
+  // using its own clock + the monotonic frame timestamps.
+  metadata.startedAtUnixMs = timeSynced ? static_cast<uint64_t>(static_cast<int64_t>(millis()) + timeOffsetUnixMs) : 0;
+  metadata.flags = kSimulatorMode ? SSLOG_FLAG_SIMULATED : 0x00;
 }
 
 static void startRecording() {
   SessionMetadata metadata;
   makeSessionMetadata(metadata);
   sequenceNumber = 0;
+  lastFrameMs = millis(); // start the fixed-period pacing clock fresh for this session
   if (!writer.startSession(metadata)) {
     Serial.println("Failed to open SD session log");
     enterState(PodState::Error);
@@ -162,6 +177,16 @@ static void pollBleCommands() {
     case PodCommand::RefreshSessions:
       refreshSessionList();
       break;
+    case PodCommand::SetTimeUnixMs: {
+      const uint64_t unixMs = ble.pendingTimeUnixMs();
+      if (unixMs > 0) {
+        timeOffsetUnixMs = static_cast<int64_t>(unixMs) - static_cast<int64_t>(millis());
+        timeSynced = true;
+        ble.updateStatus(statusJson("time_set").c_str());
+      }
+      ble.clearPendingTime();
+      break;
+    }
     case PodCommand::None:
       break;
   }
@@ -172,7 +197,11 @@ static void maybeRecordFrame() {
   const uint32_t now = millis();
   const uint32_t framePeriodMs = 1000 / kPressureSampleRateHz;
   if (now - lastFrameMs < framePeriodMs) return;
-  lastFrameMs = now;
+  // Advance by a FIXED period (not `= now`) so scheduling jitter and occasional SD-flush stalls do
+  // not slowly drag the effective sample rate below target. If we fell far behind, resync to avoid
+  // a burst of catch-up frames. The true per-frame millis() is still recorded for the app.
+  lastFrameMs += framePeriodMs;
+  if (now - lastFrameMs > framePeriodMs * 4) lastFrameMs = now;
 
   PressureImuFrame frame{};
   frame.sequence = sequenceNumber++;

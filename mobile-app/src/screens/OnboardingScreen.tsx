@@ -1,38 +1,41 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, radius } from '../theme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface Props {
   onDone: () => void;
 }
 
-const SLIDES = [
+const SLIDES: { icon: IoniconName; title: string; body: string; note: string }[] = [
   {
-    icon: '🦺',
+    icon: 'shield-checkmark-outline',
     title: 'SubStride Lab Beta',
     body: 'A research tool for understanding foot load patterns during running. This is an early beta — data is local, no account required.',
     note: 'All data stays on your device in this build.',
   },
   {
-    icon: '🦿',
+    icon: 'hardware-chip-outline',
     title: 'The pod + liner system',
     body: 'A small sensor pod sits inside a thin over-insole liner. The liner fits under your existing insole so it is nearly invisible inside the shoe.',
     note: '16 pressure zones + IMU · 100 Hz sample rate · standalone recording',
   },
   {
-    icon: '📡',
+    icon: 'radio-outline',
     title: 'Standalone recording',
     body: 'The pod records your run independently — no phone connection needed. After your run, sync over Bluetooth to import the session into SubStride.',
     note: 'Sync range: ~5 metres · BLE 5.0',
   },
   {
-    icon: '📊',
+    icon: 'analytics-outline',
     title: 'What you get',
-    body: 'Training Strain, pressure heatmaps, gait patterns, and load distribution across your foot. Compared to your personal baseline as it builds over sessions.',
+    body: 'Total Training Load, Mechanical Load, Perceived Load, pressure heatmaps, gait patterns, and load distribution across your foot. Compared to your personal baseline as it builds over sessions.',
     note: 'These are experimental load indicators — not medical measurements.',
   },
   {
-    icon: '⚙️',
+    icon: 'settings-outline',
     title: 'Calibration first',
     body: 'Before your first run, complete a calibration sequence. This takes about 2 minutes and lets the pod learn your resting baseline and dynamic load range.',
     note: 'Calibration is per-shoe — recalibrate when you change shoes.',
@@ -49,7 +52,9 @@ export function OnboardingScreen({ onDone }: Props) {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Slide */}
         <View style={styles.slide}>
-          <Text style={styles.slideIcon}>{slide.icon}</Text>
+          <View style={styles.slideIconWrap}>
+            <Ionicons name={slide.icon} size={52} color={colors.brand} />
+          </View>
           <Text style={styles.slideTitle}>{slide.title}</Text>
           <Text style={styles.slideBody}>{slide.body}</Text>
           <View style={styles.slideNote}>
@@ -95,7 +100,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { flexGrow: 1, padding: 24, justifyContent: 'center', gap: 32 },
   slide: { alignItems: 'center', gap: 16 },
-  slideIcon: { fontSize: 60 },
+  slideIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: radius.xl,
+    backgroundColor: colors.brandLight,
+    borderWidth: 1,
+    borderColor: colors.brandBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   slideTitle: { fontSize: 24, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
   slideBody: { fontSize: 16, lineHeight: 24, color: colors.textSecondary, textAlign: 'center' },
   slideNote: {

@@ -4,6 +4,7 @@ import {
   buildOpenAiExplanationPrompt,
   combineFootMetrics,
   computeRunMetrics,
+  computeLongitudinalTrainingLoad,
   deterministicExplanation,
   generateSimulatorSession,
   makeSimulatorCalibration,
@@ -18,6 +19,7 @@ import {
   type Session,
   type ShoeProfile,
   type SimulatorSession,
+  type LongitudinalTrainingLoad,
   type UserProfile,
 } from '@substride/analytics';
 
@@ -61,6 +63,7 @@ export interface BetaRunComputation {
   prompt: ReturnType<typeof buildOpenAiExplanationPrompt>;
   category: ReturnType<typeof scoreCategory>;
   baseline: BaselineSummary;
+  longitudinalLoad: LongitudinalTrainingLoad;
   context: BetaSessionContext;
   activeShoe?: ShoeProfile;
   connectedPods: BetaPod[];
@@ -220,7 +223,7 @@ export function addShoeProfile(shoes: ShoeProfile[], input?: Partial<ShoeProfile
 export function buildRunComputation(
   state: BetaAppState,
   scenario: SimulatorSession['scenario'],
-  options: { durationSeconds?: number } = {}
+  options: { durationSeconds?: number; asOf?: string | Date | number } = {}
 ): BetaRunComputation {
   const context = normalizeContext(state.sessionContext, state.shoes);
   const activeShoe = activeShoeForContext(state.shoes, context);
@@ -228,7 +231,9 @@ export function buildRunComputation(
   const footSides = connectedFootSides(state.pods);
   const simulatedSides = footSides.length > 0 ? footSides : (['left'] as FootSide[]);
   const durationSeconds = options.durationSeconds ?? 45;
+  const asOf = options.asOf ?? new Date();
 
+  const expectedMode = context.workoutType === 'walk' ? 'walk' : context.surface === 'treadmill' ? 'treadmill' : 'run';
   const sideComputations = simulatedSides.map((foot) => {
     const rawSession = generateSimulatorSession(scenario, { durationSeconds, foot });
     const pod = connectedPods.find((candidate) => candidate.assignedFoot === foot);
@@ -236,12 +241,7 @@ export function buildRunComputation(
     const framesForPod = rawSession.frames.map((frame) => ({ ...frame, podId }));
     const calibration = makeSimulatorCalibration(podId, foot);
     const calibratedFrames = applyCalibration(framesForPod, calibration);
-    const metrics = computeRunMetrics(calibratedFrames, {
-      calibrationQuality: calibration.quality,
-      expectedMode: context.workoutType === 'walk' ? 'walk' : context.surface === 'treadmill' ? 'treadmill' : 'run',
-      shoeKnown: Boolean(activeShoe),
-    });
-    return { rawSession, calibration, frames: calibratedFrames, metrics };
+    return { rawSession, calibration, frames: calibratedFrames };
   });
 
   const session = {
@@ -252,19 +252,25 @@ export function buildRunComputation(
   };
   const calibrations = sideComputations.map((item) => item.calibration);
   const frames = sideComputations.flatMap((item) => item.frames).sort((a, b) => a.timestampMs - b.timestampMs || a.foot.localeCompare(b.foot));
-  const metrics = sideComputations.length === 1
-    ? sideComputations[0].metrics
-    : combineFootMetrics(sideComputations[0].metrics, sideComputations[1].metrics);
 
-  const baselineRuns = buildBaselineRuns(state, scenario, metrics, context);
+  const baselineRuns = buildBaselineRuns(state, context);
   const baseline = buildBaseline(state.profile.id, baselineRuns);
-  const metricsWithBaseline = computeRunMetrics(frames, {
-    baseline,
-    calibrationQuality: worstCalibrationQuality(calibrations),
-    expectedMode: context.workoutType === 'walk' ? 'walk' : context.surface === 'treadmill' ? 'treadmill' : 'run',
-    shoeKnown: Boolean(activeShoe),
-  });
-  const finalMetrics = sideComputations.length === 1 ? metricsWithBaseline : { ...metricsWithBaseline, foot: 'both' as const };
+  // Apply the baseline PER FOOT and then combine. The previous code recomputed gait/metrics on the
+  // two feet's frames interleaved into one timeline, which corrupts gait-event detection (the
+  // total-load signal jumps between feet). Each foot must be analysed independently, then combined.
+  const sideMetricsWithBaseline = sideComputations.map((item) =>
+    computeRunMetrics(item.frames, {
+      baseline,
+      calibrationQuality: item.calibration.quality,
+      badChannelCount: item.calibration.badChannels.length,
+      expectedMode,
+      shoeKnown: Boolean(activeShoe),
+      perceivedEffort0To10: context.perceivedEffort0To10,
+    })
+  );
+  const finalMetrics = sideMetricsWithBaseline.length === 1
+    ? sideMetricsWithBaseline[0]
+    : combineFootMetrics(sideMetricsWithBaseline[0], sideMetricsWithBaseline[1]);
 
   const explanation = deterministicExplanation(finalMetrics);
   const prompt = buildOpenAiExplanationPrompt({
@@ -275,7 +281,15 @@ export function buildRunComputation(
       workoutType: labelForWorkout(context.workoutType),
     },
   });
-  const sessionRecord = makeSessionRecord(state, scenario, session, finalMetrics, context, baseline);
+  const sessionRecord = makeSessionRecord(state, scenario, session, finalMetrics, context, baseline, asOf, durationSeconds);
+  const longitudinalLoad = computeLongitudinalTrainingLoad(
+    [...state.sessionHistory, sessionRecord].map((record) => ({
+      session: record.session,
+      metrics: record.metrics,
+      painScore0To10: record.context.painScore0To10,
+    })),
+    { asOf }
+  );
 
   return {
     session,
@@ -285,8 +299,9 @@ export function buildRunComputation(
     metrics: finalMetrics,
     explanation,
     prompt,
-    category: scoreCategory(finalMetrics.trainingStrain.value),
+    category: scoreCategory(finalMetrics.totalTrainingLoad.value.score0To100),
     baseline,
+    longitudinalLoad,
     context,
     activeShoe,
     connectedPods,
@@ -307,11 +322,9 @@ export function normalizeContext(context: BetaSessionContext, shoes: ShoeProfile
 
 function buildBaselineRuns(
   state: BetaAppState,
-  scenario: SimulatorSession['scenario'],
-  currentMetrics: RunMetrics,
   context: BetaSessionContext
 ): BaselineInputRun[] {
-  const historical = state.sessionHistory
+  return state.sessionHistory
     .filter((record) => (
       record.context.shoeId === context.shoeId
       && record.context.surface === context.surface
@@ -324,17 +337,6 @@ function buildBaselineRuns(
       calibrationQuality: 'pass' as const,
       painScore0To10: record.context.painScore0To10,
     }));
-
-  return [
-    ...historical,
-    {
-      sessionId: `current-${scenario}`,
-      userId: state.profile.id,
-      metrics: currentMetrics,
-      calibrationQuality: 'pass',
-      painScore0To10: context.painScore0To10,
-    },
-  ];
 }
 
 function makeSessionRecord(
@@ -343,15 +345,20 @@ function makeSessionRecord(
   simulatorSession: SimulatorSession,
   metrics: RunMetrics,
   context: BetaSessionContext,
-  baseline: BaselineSummary
+  baseline: BaselineSummary,
+  asOf: string | Date | number,
+  durationSeconds: number
 ): BetaSessionRecord {
-  const now = new Date().toISOString();
+  const endedAtMs = new Date(asOf).getTime();
+  const safeEndedAtMs = Number.isFinite(endedAtMs) ? endedAtMs : Date.now();
+  const now = new Date(safeEndedAtMs).toISOString();
+  const startedAt = new Date(safeEndedAtMs - Math.max(0, durationSeconds) * 1000).toISOString();
   return {
     session: {
       id: `${simulatorSession.id}-${state.sessionHistory.length + 1}`,
       userId: state.profile.id,
       createdAt: now,
-      startedAt: now,
+      startedAt,
       endedAt: now,
       source: 'simulator',
       mode: context.workoutType === 'walk' ? 'walk' : context.surface === 'treadmill' ? 'treadmill' : 'run',
@@ -369,12 +376,6 @@ function makeSessionRecord(
     baselineStatus: baseline.status,
     expectedPatterns: simulatorSession.expectedPatterns,
   };
-}
-
-function worstCalibrationQuality(calibrations: CalibrationProfile[]): CalibrationProfile['quality'] {
-  if (calibrations.some((calibration) => calibration.quality === 'fail')) return 'fail';
-  if (calibrations.some((calibration) => calibration.quality === 'warn')) return 'warn';
-  return 'pass';
 }
 
 function clampInt(value: number, min: number, max: number): number {

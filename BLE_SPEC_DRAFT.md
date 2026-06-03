@@ -84,6 +84,10 @@ Commands are UTF-8 strings written to the Control Service command characteristic
 - `service`: enter service mode
 - `foot:left`, `foot:right`, `foot:unknown`: persist foot assignment
 - `sessions`: refresh the session list characteristic
+- `time:<unixMs>`: set the pod's wall-clock so session logs carry an absolute `startedAtUnixMs`
+  and two pods can be time-aligned. The mobile BLE service sends this before `start`. If never
+  sent, `startedAtUnixMs` stays 0 and the app reconciles using its own clock plus the monotonic
+  frame timestamps.
 
 Status is JSON:
 

@@ -9,6 +9,7 @@ interface Props {
   zoneAverages?: number[];
   foot: FootSide;
   label: string;
+  minIntensity?: number;
   maxIntensity: number;
   sampleCount?: number;
   showZoneNames?: boolean;
@@ -88,9 +89,26 @@ const VISUAL_NUMBERS: Record<FootSide, number[]> = {
   right: makeVisualNumberMap(LABEL_CENTERS.right),
 };
 
-export function FootHeatmap({ zoneAverages, foot, label, maxIntensity, sampleCount = 0, showZoneNames }: Props) {
+const ACTIVE_INTENSITY_FLOOR = 0.08;
+
+function normalizeHeatmapIntensity(value: number, minIntensity: number, maxIntensity: number): number {
+  const raw = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (raw <= 0) return 0;
+
+  const min = Number.isFinite(minIntensity) ? Math.max(0, minIntensity) : 0;
+  const max = Number.isFinite(maxIntensity) ? Math.max(min, maxIntensity) : min;
+  const range = max - min;
+
+  if (range <= Number.EPSILON) {
+    return 0.5;
+  }
+
+  const normalized = Math.max(0, Math.min(1, (raw - min) / range));
+  return ACTIVE_INTENSITY_FLOOR + normalized * (1 - ACTIVE_INTENSITY_FLOOR);
+}
+
+export function FootHeatmap({ zoneAverages, foot, label, minIntensity = 0, maxIntensity, sampleCount = 0, showZoneNames }: Props) {
   const hasData = !!zoneAverages && sampleCount > 0 && zoneAverages.some((value) => value > 0);
-  const divisor = Math.max(maxIntensity, 1);
 
   return (
     <View style={[styles.container, !hasData && styles.containerNoData]}>
@@ -107,7 +125,8 @@ export function FootHeatmap({ zoneAverages, foot, label, maxIntensity, sampleCou
             {REGION_PATHS.map((path, pathIndex) => {
               const zoneIndex = PATH_ZONE_ORDER[pathIndex];
               const raw = zoneAverages?.[zoneIndex] ?? 0;
-              const fill = hasData ? heatColor(raw / divisor) : colors.bgCardAlt;
+              const intensity = normalizeHeatmapIntensity(raw, minIntensity, maxIntensity);
+              const fill = hasData ? heatColor(intensity) : colors.bgCardAlt;
               return (
                 <Path
                   key={`${foot}-${pathIndex}`}
@@ -136,7 +155,7 @@ export function FootHeatmap({ zoneAverages, foot, label, maxIntensity, sampleCou
         {showZoneNames ? (
           LABEL_CENTERS[foot].map(([x, y], pathIndex) => {
             const zoneIndex = PATH_ZONE_ORDER[pathIndex];
-            const intensity = (zoneAverages?.[zoneIndex] ?? 0) / divisor;
+            const intensity = normalizeHeatmapIntensity(zoneAverages?.[zoneIndex] ?? 0, minIntensity, maxIntensity);
             const fill = hasData && intensity > 0.58 ? colors.textInverse : colors.textPrimary;
             return (
               <SvgText

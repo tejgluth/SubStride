@@ -6,6 +6,12 @@ static constexpr uint16_t SSLOG_VERSION = 1;
 static constexpr uint16_t SSLOG_HEADER_LENGTH = 164;
 static constexpr uint16_t SSLOG_FRAME_LENGTH = 58;
 
+// Header flag bits (byte 159). Bit 0 = simulated capture, bit 1 = file closed cleanly.
+// A reader that sees a file without the clean-close bit should treat the trailing data as a
+// possible partial/torn run and decode defensively (count frames from file size).
+static constexpr uint8_t SSLOG_FLAG_SIMULATED = 0x01;
+static constexpr uint8_t SSLOG_FLAG_CLEAN_CLOSE = 0x02;
+
 struct PressureImuFrame {
   uint32_t sequence;
   uint32_t timestampMs;

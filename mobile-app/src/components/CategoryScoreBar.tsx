@@ -1,23 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radius } from '../theme';
+import { colors, radius, scoreGradientColor } from '../theme';
 
 interface Props {
   label: string;
   value: number;
   sublabel?: string;
   colorOverride?: string;
+  higherIsBetter?: boolean;
 }
 
-function barColor(value: number): string {
-  if (value <= 35) return colors.scoreLow;
-  if (value <= 65) return colors.scoreModerate;
-  if (value <= 85) return colors.scoreHigh;
-  return colors.scoreVeryHigh;
-}
-
-export function CategoryScoreBar({ label, value, sublabel, colorOverride }: Props) {
-  const color = colorOverride ?? barColor(value);
+export function CategoryScoreBar({ label, value, sublabel, colorOverride, higherIsBetter = false }: Props) {
+  const color = colorOverride ?? scoreGradientColor(value, higherIsBetter);
   const clamped = Math.min(100, Math.max(0, value));
 
   return (

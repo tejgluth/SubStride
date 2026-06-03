@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, shadow } from '../theme';
 
 interface Props {
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   title: string;
   summary: string;
   detail?: string;
@@ -28,7 +29,11 @@ export function InsightCard({ icon, title, summary, detail, tag }: Props) {
     >
       <View style={styles.row}>
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>{icon}</Text>
+          <Ionicons
+            name={icon}
+            size={20}
+            color={tagStyle ? tagStyle.text : colors.textSecondary}
+          />
         </View>
         <View style={styles.content}>
           <View style={styles.titleRow}>
@@ -72,7 +77,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
   },
-  icon: { fontSize: 20 },
   content: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
   title: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },

@@ -1,15 +1,18 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Section } from '../components/Section';
 import { SimBadge } from '../components/SimBadge';
 import { colors, radius } from '../theme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface Scenario {
   id: string;
   label: string;
   description: string;
   expectedPatterns: string[];
-  icon: string;
+  icon: IoniconName;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -17,43 +20,43 @@ const SCENARIOS: Scenario[] = [
     id: 'normal_easy_run',
     label: 'Normal easy run',
     description: 'Balanced load pattern at comfortable pace',
-    expectedPatterns: ['Balanced load', 'Stable fatigue shift', 'Moderate Training Strain'],
-    icon: '🏃',
+    expectedPatterns: ['Balanced load', 'Stable fatigue shift', 'Moderate Training Load'],
+    icon: 'walk-outline',
   },
   {
     id: 'fatigued_long_run',
     label: 'Fatigued long run',
     description: 'Progressive forefoot load shift as fatigue builds',
     expectedPatterns: ['Higher cumulative load', 'Larger first/second half shift', 'Elevated fatigue proxy'],
-    icon: '😮‍💨',
+    icon: 'timer-outline',
   },
   {
     id: 'forefoot_overload',
     label: 'Forefoot overload',
     description: 'Concentrated load on metatarsal and toe zones',
     expectedPatterns: ['Elevated forefoot/metatarsal score', 'Higher toe-off contribution'],
-    icon: '🦶',
+    icon: 'footsteps-outline',
   },
   {
     id: 'heel_impact_spike',
     label: 'Heel impact spike',
     description: 'Strong heel strike with higher impact proxy',
     expectedPatterns: ['Higher heel load score', 'Higher impact proxy', 'Elevated load rate'],
-    icon: '💥',
+    icon: 'flame-outline',
   },
   {
     id: 'medial_lateral_imbalance',
     label: 'Medial/lateral imbalance',
     description: 'Asymmetric load — more medial or lateral bias',
     expectedPatterns: ['Lower balance score', 'Side asymmetry'],
-    icon: '⚖️',
+    icon: 'swap-horizontal-outline',
   },
   {
     id: 'new_old_shoe_comparison',
     label: 'Old shoe comparison',
     description: 'Higher heel impact, simulating a worn-out midsole',
     expectedPatterns: ['Higher impact proxy vs normal run', 'Higher heel load'],
-    icon: '👟',
+    icon: 'fitness-outline',
   },
 ];
 
@@ -81,7 +84,7 @@ export function SessionsScreen({ selectedScenario, onSelectScenario }: Props) {
               activeOpacity={0.8}
             >
               <View style={styles.cardHeader}>
-                <Text style={styles.cardIcon}>{scenario.icon}</Text>
+                <Ionicons name={scenario.icon} size={22} color={isSelected ? colors.brand : colors.textTertiary} />
                 <View style={styles.cardTitles}>
                   <Text style={[styles.cardLabel, isSelected && styles.cardLabelSelected]}>
                     {scenario.label}
@@ -133,7 +136,7 @@ const styles = StyleSheet.create({
   },
   cardSelected: { borderColor: colors.brand, backgroundColor: colors.brandLight },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  cardIcon: { fontSize: 24, marginTop: 2 },
+  cardIcon: { marginTop: 2 },
   cardTitles: { flex: 1 },
   cardLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   cardLabelSelected: { color: colors.brand },

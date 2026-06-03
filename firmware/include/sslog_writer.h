@@ -25,7 +25,7 @@ private:
   uint32_t _frameCount = 0;
   bool _open = false;
 
-  void writeHeader(uint32_t frameCount);
-  void updateHeaderFrameCount();
+  void writeHeader(uint32_t frameCount, bool cleanClose = false);
+  void updateHeaderFrameCount(bool cleanClose = false);
   void writeManifest(const char* status);
 };

@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CalibrationProfile, Pod, Session, ShoeProfile, UserProfile } from "@substride/analytics";
+import { parseStored, wrapStored } from "@substride/analytics";
 import type { BetaPod, BetaSessionContext, BetaSessionRecord } from "../domain/betaAppModel";
 
 type LocalKeys = "profile" | "pods" | "shoes" | "calibrations" | "sessions" | "sessionHistory" | "sessionContext";
@@ -62,11 +63,28 @@ export const localStore = {
   }
 };
 
+// Fail-safe read: never throws on corrupt/old data. A bad blob is backed up under a `.corrupt`
+// key (so it is not silently lost and can be inspected) and the caller falls back to defaults.
 async function read<T>(key: LocalKeys): Promise<T | undefined> {
-  const value = await AsyncStorage.getItem(prefix + key);
-  return value ? (JSON.parse(value) as T) : undefined;
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(prefix + key);
+  } catch {
+    return undefined;
+  }
+  const { value, status } = parseStored<T>(raw);
+  if (status === "corrupt" || status === "version_mismatch") {
+    // Preserve the unreadable data instead of discarding it; reset this key to defaults.
+    try {
+      if (raw) await AsyncStorage.setItem(`${prefix}${key}.corrupt.${Date.now()}`, raw);
+    } catch {
+      /* best effort */
+    }
+    return undefined;
+  }
+  return value;
 }
 
 async function write<T>(key: LocalKeys, value: T): Promise<void> {
-  await AsyncStorage.setItem(prefix + key, JSON.stringify(value));
+  await AsyncStorage.setItem(prefix + key, JSON.stringify(wrapStored(value)));
 }

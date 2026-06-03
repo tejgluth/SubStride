@@ -158,7 +158,12 @@ class PodBleService {
     return this.writeCommand(podId, `foot:${foot}`);
   }
 
+  async syncTime(podId: string, unixMs: number = Date.now()): Promise<PodCommandResult> {
+    return this.writeCommand(podId, `time:${Math.max(0, Math.round(unixMs))}`);
+  }
+
   async startRecording(podId: string): Promise<PodCommandResult> {
+    await this.syncTime(podId);
     return this.writeCommand(podId, 'start');
   }
 
@@ -222,7 +227,11 @@ class PodBleService {
         podId,
         command,
         accepted: true,
-        status: { podId, status: command === 'start' ? 'recording' : command === 'stop' ? 'idle' : 'foot_set', foot: podId.includes('LEFT') ? 'left' : 'right' },
+        status: {
+          podId,
+          status: command === 'start' ? 'recording' : command === 'stop' ? 'idle' : command.startsWith('time:') ? 'time_set' : 'foot_set',
+          foot: podId.includes('LEFT') ? 'left' : 'right',
+        },
       };
     }
 

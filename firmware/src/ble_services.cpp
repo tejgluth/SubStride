@@ -33,6 +33,12 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
     else if (value == "foot:right") activeBle->_pendingCommand = PodCommand::SetRight;
     else if (value == "foot:unknown") activeBle->_pendingCommand = PodCommand::SetUnknown;
     else if (value == "sessions") activeBle->_pendingCommand = PodCommand::RefreshSessions;
+    else if (value.rfind("time:", 0) == 0) {
+      // "time:<unixMs>" — phone supplies wall-clock so logs carry an absolute start time and two
+      // pods can be aligned. strtoull handles the 64-bit millisecond value.
+      activeBle->_pendingTimeUnixMs = strtoull(value.c_str() + 5, nullptr, 10);
+      activeBle->_pendingCommand = PodCommand::SetTimeUnixMs;
+    }
   }
 };
 

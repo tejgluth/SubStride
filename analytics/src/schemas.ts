@@ -1,11 +1,17 @@
 import { z } from "zod";
 
+/**
+ * Bump when any persisted schema changes shape. Stored envelopes carry this so the app can
+ * migrate or safely discard incompatible data instead of crashing or silently mis-reading it.
+ */
+export const SCHEMA_VERSION = 1;
+
 export const footSideSchema = z.enum(["left", "right", "unknown"]);
 export const assignedFootSchema = z.enum(["left", "right", "unknown", "unassigned"]);
 export const calibrationQualitySchema = z.enum(["pass", "warn", "fail"]);
 
-const numericArray16 = z.array(z.number()).length(16);
-const vector3 = z.tuple([z.number(), z.number(), z.number()]);
+const numericArray16 = z.array(z.number().finite()).length(16);
+const vector3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 
 export const userProfileSchema = z.object({
   id: z.string().min(1),
@@ -85,6 +91,72 @@ export const sessionSchema = z.object({
   syncStatus: z.enum(["not_synced", "partial", "synced"])
 });
 
+export const podSessionSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  podId: z.string().min(1),
+  foot: footSideSchema,
+  logFileName: z.string().min(1),
+  startMonotonicMs: z.number().nonnegative(),
+  sampleRateEstimateHz: z.number().nonnegative(),
+  packetLossEstimate: z.number().min(0).max(1),
+  crcStatus: z.enum(["ok", "failed", "missing"]),
+  decodedStatus: z.enum(["pending", "decoded", "failed"])
+});
+
+export const confidenceAssessmentSchema = z.object({
+  level: z.enum(["blocked", "low", "moderate", "high"]),
+  score: z.number().min(0).max(100),
+  reasonCodes: z.array(z.string()),
+  blocking: z.array(z.string()),
+  baselineStatus: z.enum(["none", "preliminary", "baseline_enabled", "mature"]),
+  scoreShowable: z.boolean()
+});
+
 export function validateRawFrames(frames: unknown[]) {
   return z.array(rawFrameSchema).parse(frames);
+}
+
+/**
+ * Versioned persistence envelope. Stored blobs are `{ schemaVersion, payload }`. On read, a
+ * mismatched or unparsable envelope is rejected (the caller falls back to defaults and backs up
+ * the bad blob) rather than feeding malformed data into analytics.
+ */
+export interface StoredEnvelope<T> {
+  schemaVersion: number;
+  payload: T;
+}
+
+export function wrapStored<T>(payload: T, schemaVersion = SCHEMA_VERSION): StoredEnvelope<T> {
+  return { schemaVersion, payload };
+}
+
+export function parseStored<T>(raw: string | null | undefined, schema?: z.ZodType<T>): { value: T | undefined; status: "ok" | "empty" | "version_mismatch" | "corrupt" } {
+  if (raw == null || raw === "") return { value: undefined, status: "empty" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { value: undefined, status: "corrupt" };
+  }
+  // Tolerate legacy un-enveloped blobs by reading them as-is. Only explicit envelopes are subject
+  // to version mismatch handling; otherwise existing beta data would disappear on first launch.
+  if (!(parsed && typeof parsed === "object" && "schemaVersion" in (parsed as object))) {
+    if (schema) {
+      const result = schema.safeParse(parsed);
+      if (!result.success) return { value: undefined, status: "corrupt" };
+      return { value: result.data, status: "ok" };
+    }
+    return { value: parsed as T, status: "ok" };
+  }
+  const envelope = parsed as StoredEnvelope<unknown>;
+  if (envelope.schemaVersion !== SCHEMA_VERSION) {
+    return { value: undefined, status: "version_mismatch" };
+  }
+  if (schema) {
+    const result = schema.safeParse(envelope.payload);
+    if (!result.success) return { value: undefined, status: "corrupt" };
+    return { value: result.data, status: "ok" };
+  }
+  return { value: envelope.payload as T, status: "ok" };
 }

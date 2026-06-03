@@ -12,7 +12,7 @@ Pipeline:
 6. Segment stance windows.
 7. Compute per-step and run-level metrics.
 8. Compare to the user's own baseline when enough clean runs exist.
-9. Compute Training Strain and category scores in deterministic code.
+9. Compute Mechanical Load, Perceived Load, Total Training Load, and category scores in deterministic code.
 10. Build conservative deterministic and OpenAI-ready explanations.
 
 Implemented indicators:
@@ -33,7 +33,9 @@ Implemented indicators:
 - pressure + IMU impact proxy
 - fatigue shift, first half vs second half
 - shoe load score
-- Training Strain 0-100
+- Mechanical Load 0-100 plus raw relative dose
+- Perceived Load as RPE-minutes plus 0-100 score when effort is supplied
+- Total Training Load 0-100 (`trainingStrain` remains a compatibility alias)
 
 Limitations:
 

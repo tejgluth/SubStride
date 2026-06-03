@@ -150,12 +150,33 @@ export interface StepSegment {
   foot: FootSide;
 }
 
+export type ConfidenceLevel = "blocked" | "low" | "moderate" | "high";
+
+export interface ConfidenceAssessment {
+  /** Overall confidence in this run's scores. "blocked" = do NOT present a confident number. */
+  level: ConfidenceLevel;
+  /** Internal 0-100 confidence score (deterministic). */
+  score: number;
+  /** Human/code-readable reasons confidence was reduced. */
+  reasonCodes: string[];
+  /** Reasons that forced the level to "blocked" (empty unless blocked). */
+  blocking: string[];
+  /** Baseline maturity at scoring time. */
+  baselineStatus: "none" | "preliminary" | "baseline_enabled" | "mature";
+  /** Whether Total Training Load should be shown as a confident number. */
+  scoreShowable: boolean;
+}
+
 export interface MetricValue<T = number> {
   value: T;
   units: string;
   contributingData: string[];
   reasonCodes: string[];
   limitations?: string[];
+  /** Per-metric confidence, inherited from the run-level assessment unless overridden. */
+  confidence?: ConfidenceLevel;
+  /** Marks metrics that are not yet validated against real hardware/reference. */
+  experimental?: boolean;
 }
 
 export interface CategoryScores {
@@ -167,6 +188,39 @@ export interface CategoryScores {
   toeOffContribution: MetricValue;
   fatigueShift: MetricValue;
   shoeLoadScore: MetricValue;
+}
+
+export interface MechanicalLoadValue {
+  score0To100: number;
+  rawDose: number;
+  dosePerMinute: number;
+  dosePer1000Steps: number;
+  intensity0To100: number;
+  volumeFactor: number;
+  components: {
+    impact: number;
+    loadRate: number;
+    spikiness: number;
+    fatigue: number;
+  };
+}
+
+export interface PerceivedLoadValue {
+  score0To100: number | null;
+  rawRpeMinutes: number | null;
+  rpe0To10: number | null;
+  durationMinutes: number;
+}
+
+export interface TotalTrainingLoadValue {
+  score0To100: number;
+  mechanicalScore0To100: number;
+  perceivedScore0To100: number | null;
+  weights: {
+    mechanical: number;
+    perceived: number;
+  };
+  missingStreams: string[];
 }
 
 export interface RunMetrics {
@@ -182,8 +236,18 @@ export interface RunMetrics {
   heelMidForeToeDistribution: MetricValue<Record<string, number>>;
   impactLoad: MetricValue;
   fatigueShift: MetricValue;
+  /** Beta-safe mechanical load from pressure + IMU only. */
+  mechanicalLoad: MetricValue<MechanicalLoadValue>;
+  /** Session RPE x duration, when supplied. */
+  perceivedLoad: MetricValue<PerceivedLoadValue>;
+  /** User-facing fused beta load. `trainingStrain` is kept as a numeric alias for compatibility. */
+  totalTrainingLoad: MetricValue<TotalTrainingLoadValue>;
   trainingStrain: MetricValue;
   categoryScores: CategoryScores;
+  /** Run-level confidence/quality gating. UI must respect confidence.scoreShowable. */
+  confidence: ConfidenceAssessment;
+  /** Left/right asymmetry, present only for time-aligned two-foot runs. Experimental. */
+  asymmetry?: MetricValue;
   steps: StepSegment[];
 }
 

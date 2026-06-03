@@ -14,9 +14,76 @@ const toeZones = [13, 14, 15];
 const medialZones = [0, 3, 6, 8, 13];
 const lateralZones = [2, 5, 7, 12, 15];
 
-function addRegion(pressure: number[], zones: number[], amount: number): void {
-  const each = amount / zones.length;
-  for (const zone of zones) pressure[zone] += each;
+const zoneAnatomyWeights = [
+  0.31, 0.38, 0.31,
+  0.12, 0.17, 0.23, 0.19, 0.29,
+  0.21, 0.24, 0.23, 0.18, 0.14,
+  0.54, 0.29, 0.17,
+];
+
+const footPlacementMultipliers: Record<FootSide, number[]> = {
+  left: [
+    1.02, 1.00, 0.98,
+    1.03, 1.00, 0.97, 1.02, 0.99,
+    1.04, 1.01, 0.99, 0.98, 0.96,
+    1.05, 0.98, 0.95,
+  ],
+  right: [
+    0.98, 1.01, 1.02,
+    0.97, 1.00, 1.03, 0.98, 1.04,
+    0.97, 1.00, 1.02, 1.03, 1.04,
+    0.96, 1.01, 1.03,
+  ],
+  unknown: new Array(16).fill(1),
+};
+
+function phaseMultiplier(zone: number, progress: number): number {
+  if (heelZones.includes(zone)) {
+    if (zone === 2) return 1 + Math.max(0, 0.22 - progress) * 0.42;
+    if (zone === 1) return 1 + Math.sin(Math.PI * Math.min(1, progress / 0.42)) * 0.08;
+    return 1 + Math.max(0, progress - 0.18) * 0.06;
+  }
+
+  if (midfootZones.includes(zone)) {
+    const midstance = Math.sin(Math.PI * Math.min(1, Math.max(0, (progress - 0.12) / 0.62)));
+    if (zone === 3) return 0.92 + midstance * 0.05;
+    if (zone === 7) return 1.04 + midstance * 0.05;
+    return 1 + midstance * 0.03;
+  }
+
+  if (forefootZones.includes(zone)) {
+    const lateStance = Math.max(0, progress - 0.45);
+    if (zone === 8) return 1 + lateStance * 0.16;
+    if (zone === 9 || zone === 10) return 1 + Math.sin(Math.PI * progress) * 0.04;
+    if (zone === 12) return 1 - lateStance * 0.10;
+  }
+
+  if (toeZones.includes(zone)) {
+    const toeOff = Math.max(0, progress - 0.62);
+    if (zone === 13) return 1 + toeOff * 0.35;
+    if (zone === 15) return 1 - toeOff * 0.12;
+  }
+
+  return 1;
+}
+
+function deterministicStepMultiplier(zone: number, sequence: number): number {
+  return 1
+    + 0.028 * Math.sin(sequence / 53 + zone * 0.73)
+    + 0.016 * Math.cos(sequence / 31 + zone * 1.11);
+}
+
+function addRegion(pressure: number[], zones: number[], amount: number, foot: FootSide, sequence: number, progress: number): void {
+  const weights = zones.map((zone) => {
+    const weight = zoneAnatomyWeights[zone] ?? 1;
+    const footPlacement = footPlacementMultipliers[foot][zone] ?? 1;
+    return Math.max(0.05, weight * footPlacement * phaseMultiplier(zone, progress) * deterministicStepMultiplier(zone, sequence));
+  });
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+
+  zones.forEach((zone, index) => {
+    pressure[zone] += amount * (weights[index] / totalWeight);
+  });
 }
 
 function addSideBias(pressure: number[], zones: number[], amount: number): void {
@@ -76,29 +143,29 @@ export function generateSimulatorSession(
       const forefootLoad = baseLoad * Math.max(0, progress - 0.25) * 1.2;
       const toeLoad = baseLoad * Math.max(0, progress - 0.62) * 1.7;
 
-      addRegion(pressure, heelZones, heelLoad);
-      addRegion(pressure, midfootZones, midfootLoad);
-      addRegion(pressure, forefootZones, forefootLoad);
-      addRegion(pressure, toeZones, toeLoad);
+      addRegion(pressure, heelZones, heelLoad, foot, i, progress);
+      addRegion(pressure, midfootZones, midfootLoad, foot, i, progress);
+      addRegion(pressure, forefootZones, forefootLoad, foot, i, progress);
+      addRegion(pressure, toeZones, toeLoad, foot, i, progress);
       accelZ += 0.12 * loadWave;
 
       if (scenario === "forefoot_overload") {
-        addRegion(pressure, forefootZones, baseLoad * 0.42);
-        addRegion(pressure, toeZones, baseLoad * 0.22);
+        addRegion(pressure, forefootZones, baseLoad * 0.42, foot, i, progress);
+        addRegion(pressure, toeZones, baseLoad * 0.22, foot, i, progress);
       }
       if (scenario === "heel_impact_spike" && progress < 0.18) {
-        addRegion(pressure, heelZones, baseLoad * 0.75);
+        addRegion(pressure, heelZones, baseLoad * 0.75, foot, i, progress);
         accelZ += 0.65 * (1 - progress / 0.18);
       }
       if (scenario === "medial_lateral_imbalance") {
         addSideBias(pressure, foot === "left" ? medialZones : lateralZones, baseLoad * 0.13);
       }
       if (scenario === "fatigued_long_run" && fatigueProgress > 0.5) {
-        addRegion(pressure, forefootZones, baseLoad * fatigueProgress * 0.18);
+        addRegion(pressure, forefootZones, baseLoad * fatigueProgress * 0.18, foot, i, progress);
         addSideBias(pressure, lateralZones, baseLoad * fatigueProgress * 0.06);
       }
       if (scenario === "new_old_shoe_comparison") {
-        addRegion(pressure, heelZones, baseLoad * 0.24);
+        addRegion(pressure, heelZones, baseLoad * 0.24, foot, i, progress);
         accelZ += 0.22 * loadWave;
       }
     }
@@ -115,7 +182,7 @@ export function generateSimulatorSession(
     new_old_shoe_comparison: "Simulated old-shoe comparison pattern"
   };
   const expectedPatterns: Record<SimulatorSession["scenario"], string[]> = {
-    normal_easy_run: ["balanced load", "stable fatigue shift", "moderate Training Strain"],
+    normal_easy_run: ["balanced load", "stable fatigue shift", "moderate Total Training Load"],
     fatigued_long_run: ["higher cumulative load", "larger first-half vs second-half shift"],
     forefoot_overload: ["higher forefoot/metatarsal load", "higher toe-off contribution"],
     heel_impact_spike: ["higher heel load", "higher impact proxy"],

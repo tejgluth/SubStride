@@ -76,4 +76,20 @@ describe("gait and metrics", () => {
     expect(metricsByScenario.medial_lateral_imbalance.categoryScores.loadBalance.value)
       .toBeLessThan(metricsByScenario.normal_easy_run.categoryScores.loadBalance.value);
   });
+
+  it("simulator heatmap inputs vary per zone instead of flat region blocks", () => {
+    const session = generateSimulatorSession("normal_easy_run", { durationSeconds: 20 });
+    const frames = applyCalibration(session.frames, makeSimulatorCalibration());
+    const sums = new Array(16).fill(0);
+
+    for (const frame of frames) {
+      frame.relativeLoad.forEach((value, zoneIndex) => {
+        sums[zoneIndex] += value;
+      });
+    }
+
+    const averages = sums.map((sum) => sum / frames.length);
+    const rounded = averages.map((value) => value.toFixed(2));
+    expect(new Set(rounded).size).toBeGreaterThanOrEqual(12);
+  });
 });

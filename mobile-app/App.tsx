@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { RunSummaryScreen } from './src/screens/RunSummaryScreen';
@@ -21,7 +22,7 @@ import { PairingScreen } from './src/screens/PairingScreen';
 import { PostRunScreen } from './src/screens/PostRunScreen';
 
 import type { AppTab } from './src/navigation/types';
-import { colors, radius } from './src/theme';
+import { colors, radius, scoreGradientColor } from './src/theme';
 import {
   addShoeProfile,
   buildRunComputation,
@@ -35,20 +36,22 @@ import { podBleService } from './src/services/podBleService';
 
 type RunPhase = 'pre_run' | 'recording' | 'post_run';
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
 // Main tabs always visible
-const MAIN_TABS: { id: AppTab; label: string; icon: string }[] = [
-  { id: 'home', label: 'Run', icon: '⚡' },
-  { id: 'heatmap', label: 'Map', icon: '🗺' },
-  { id: 'insights', label: 'Insights', icon: '💡' },
-  { id: 'trends', label: 'Trends', icon: '📈' },
-  { id: 'connect', label: 'Connect', icon: '🔗' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+const MAIN_TABS: { id: AppTab; label: string; icon: IoniconName }[] = [
+  { id: 'home', label: 'Run', icon: 'flash-outline' },
+  { id: 'heatmap', label: 'Map', icon: 'map-outline' },
+  { id: 'insights', label: 'Insights', icon: 'bulb-outline' },
+  { id: 'trends', label: 'Trends', icon: 'trending-up-outline' },
+  { id: 'connect', label: 'Connect', icon: 'bluetooth-outline' },
+  { id: 'settings', label: 'Settings', icon: 'settings-outline' },
 ];
 
 // Extra tabs shown only in developer mode
-const DEV_TABS: { id: AppTab; label: string; icon: string }[] = [
-  { id: 'sessions', label: 'Scen.', icon: '🔬' },
-  { id: 'debug', label: 'Debug', icon: '🛠' },
+const DEV_TABS: { id: AppTab; label: string; icon: IoniconName }[] = [
+  { id: 'sessions', label: 'Scen.', icon: 'flask-outline' },
+  { id: 'debug', label: 'Debug', icon: 'bug-outline' },
 ];
 
 export default function App() {
@@ -59,6 +62,7 @@ export default function App() {
   const [appState, setAppState] = useState<BetaAppState>(() => createDefaultBetaAppState());
   const [hydrated, setHydrated] = useState(false);
   const [runPhase, setRunPhase] = useState<RunPhase>('pre_run');
+  const [viewedAtMs, setViewedAtMs] = useState(() => Date.now());
 
   useEffect(() => {
     let cancelled = false;
@@ -98,9 +102,14 @@ export default function App() {
     localStore.saveSessionContext(appState.sessionContext).catch(() => undefined);
   }, [appState, hydrated]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setViewedAtMs(Date.now()), 30 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const computed = useMemo(() => {
-    return buildRunComputation(appState, scenario as any, { durationSeconds: 45 });
-  }, [appState, scenario]);
+    return buildRunComputation(appState, scenario as any, { durationSeconds: 45, asOf: viewedAtMs });
+  }, [appState, scenario, viewedAtMs]);
 
   const updateSessionContext = (patch: Partial<BetaSessionContext>) => {
     setAppState((current) => ({
@@ -184,10 +193,26 @@ export default function App() {
             {computed.connectedPods.length > 0 ? `${computed.connectedPods.length} pod mode` : 'Simulator fallback'} · {computed.session.label}
           </Text>
         </View>
-        <View style={styles.strainPill}>
-          <Text style={styles.strainLabel}>Strain</Text>
-          <Text style={styles.strainValue}>{computed.metrics.trainingStrain.value}</Text>
-        </View>
+        {(() => {
+          const loadScore = computed.metrics.confidence.scoreShowable
+            ? computed.metrics.totalTrainingLoad.value.score0To100
+            : null;
+          const loadColor = loadScore != null ? scoreGradientColor(loadScore) : colors.brand;
+          const loadBg = loadScore != null
+            ? scoreGradientColor(loadScore) + '18'
+            : colors.brandLight;
+          const loadBorder = loadScore != null
+            ? scoreGradientColor(loadScore) + '55'
+            : colors.brandBorder;
+          return (
+            <View style={[styles.strainPill, { backgroundColor: loadBg, borderColor: loadBorder }]}>
+              <Text style={[styles.strainLabel, { color: loadColor }]}>Load</Text>
+              <Text style={[styles.strainValue, { color: loadColor }]}>
+                {loadScore ?? '—'}
+              </Text>
+            </View>
+          );
+        })()}
       </View>
 
       {/* Tab bar */}
@@ -208,7 +233,11 @@ export default function App() {
                 onPress={() => setActiveTab(tab.id)}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>{tab.icon}</Text>
+                <Ionicons
+                  name={tab.icon}
+                  size={20}
+                  color={isDev ? colors.simPurple : isActive ? colors.brand : colors.textTertiary}
+                />
                 <Text style={[styles.tabLabel, isActive && styles.tabLabelActive, isDev && styles.tabLabelDev]}>
                   {tab.label}
                 </Text>
@@ -249,7 +278,7 @@ export default function App() {
             isSimulated
           />
         )}
-        {activeTab === 'trends' && <TrendsScreen metrics={computed.metrics} history={computed.history} baseline={computed.baseline} />}
+        {activeTab === 'trends' && <TrendsScreen metrics={computed.metrics} history={computed.history} baseline={computed.baseline} longitudinalLoad={computed.longitudinalLoad} />}
         {activeTab === 'connect' && (
           <PairingScreen
             pods={appState.pods}
@@ -341,8 +370,6 @@ const styles = StyleSheet.create({
   },
   tabActive: { borderBottomColor: colors.brand },
   tabDev: { opacity: 0.8 },
-  tabIcon: { fontSize: 16 },
-  tabIconActive: {},
   tabLabel: { fontSize: 11, fontWeight: '600', color: colors.textTertiary },
   tabLabelActive: { color: colors.brand },
   tabLabelDev: { color: colors.simPurple },

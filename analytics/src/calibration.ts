@@ -1,5 +1,13 @@
 import type { BadChannelFinding, CalibratedFrame, CalibrationProfile, CalibrationQuality, RawFrame, RegionLoads, ZoneStats } from "./types";
-import { reorderChannelsByZone, zoneMap } from "./zoneMap";
+import {
+  DEFAULT_LEFT_FOOT_LAYOUT,
+  LEFT_FOOT_LAYOUT_VERIFIED,
+  reorderChannelsByZone,
+  resolveZoneMapForFoot,
+  zoneMap,
+  type LeftFootChannelLayout,
+  type ZoneDefinition,
+} from "./zoneMap";
 
 export interface CalibrationBuildInput {
   id: string;
@@ -13,7 +21,9 @@ export interface CalibrationBuildInput {
 
 export interface CalibrationApplyOptions {
   maxReasonableLoad?: number;
-  channelMap?: typeof zoneMap;
+  channelMap?: ZoneDefinition[];
+  /** How the left pod's channels map to anatomy. See zoneMap.ts. */
+  leftFootLayout?: LeftFootChannelLayout;
 }
 
 function mean(values: number[]): number {
@@ -91,7 +101,7 @@ export function buildCalibrationProfile(input: CalibrationBuildInput): Calibrati
   };
 }
 
-export function computeRegionLoads(relativeLoad: number[]): RegionLoads {
+export function computeRegionLoads(relativeLoad: number[], zoneDefs: ZoneDefinition[] = zoneMap): RegionLoads {
   const regionLoads: RegionLoads = {
     heel: 0,
     midfoot: 0,
@@ -102,7 +112,7 @@ export function computeRegionLoads(relativeLoad: number[]): RegionLoads {
     lateral: 0
   };
 
-  zoneMap.forEach((zone, index) => {
+  zoneDefs.forEach((zone, index) => {
     const value = relativeLoad[index] ?? 0;
     regionLoads[zone.region] += value;
     regionLoads[zone.side] += value;
@@ -116,11 +126,24 @@ export function applyCalibration(
   options: CalibrationApplyOptions = {}
 ): CalibratedFrame[] {
   const maxReasonableLoad = options.maxReasonableLoad ?? 2500;
-  const channelMap = options.channelMap ?? zoneMap;
+  const leftFootLayout = options.leftFootLayout ?? DEFAULT_LEFT_FOOT_LAYOUT;
+  // The reorder (raw channel -> zone slot) is identity-keyed by defaultChannelIndex and is
+  // foot-independent. The medial/lateral *labels* used for region sums are foot-dependent, so
+  // region grouping uses a foot-resolved zone map. Profile foot is the source of truth for the
+  // pod side; per-frame foot is used only when the profile is foot-agnostic.
+  const profileFoot = profile.foot;
+  const channelMap = options.channelMap ?? resolveZoneMapForFoot(profileFoot, leftFootLayout);
 
   return frames.map((frame) => {
+    const foot = profileFoot !== "unknown" ? profileFoot : frame.foot;
+    const regionZoneMap = options.channelMap ?? resolveZoneMapForFoot(foot, leftFootLayout);
     const pressureByZone = reorderChannelsByZone(frame.pressureRaw, channelMap);
     const qualityFlags = profile.quality === "fail" ? ["calibration_failed"] : profile.quality === "warn" ? ["calibration_warning"] : [];
+    // Left-foot medial/lateral interpretation depends on an unconfirmed hardware wiring
+    // assumption. Flag it so confidence scoring can discount side-based metrics until verified.
+    if (foot === "left" && leftFootLayout === "mirrored" && !LEFT_FOOT_LAYOUT_VERIFIED) {
+      qualityFlags.push("left_foot_orientation_unverified");
+    }
     const relativeLoad = pressureByZone.map((raw, index) => {
       const offset = profile.zoneOffsets[index] ?? 0;
       const gain = profile.zoneGains[index] ?? 1;
@@ -137,7 +160,7 @@ export function applyCalibration(
       timestampMs: frame.timestampMs,
       relativeLoad,
       totalLoad,
-      regionLoads: computeRegionLoads(relativeLoad),
+      regionLoads: computeRegionLoads(relativeLoad, regionZoneMap),
       qualityFlags: [...new Set(qualityFlags)],
       accel: frame.accel,
       gyro: frame.gyro

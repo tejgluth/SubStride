@@ -3,6 +3,7 @@ export * from "./calibration";
 export * from "./crc32";
 export * from "./explanations";
 export * from "./gait";
+export * from "./longitudinalLoad";
 export * from "./metrics";
 export * from "./schemas";
 export * from "./simulator";
