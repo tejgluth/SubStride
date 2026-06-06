@@ -63,16 +63,16 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
           <Text style={styles.saveBtnText}>{isRunning ? 'End run' : 'Start run'}</Text>
         </TouchableOpacity>
         <Text style={styles.runFlowNote}>
-          {isRunning ? 'Recording command sent to connected pods. Ending the run opens post-run questions.' : 'Start sends the recording command to connected pods, or uses simulator mode for this prototype.'}
+          {isRunning ? 'Recording command sent to connected pods. Ending the run opens post-run questions.' : 'Start sends the recording command to connected pods.'}
         </Text>
       </Section>
 
-      {/* Hero: Total Training Load (gated on confidence) */}
+      {/* Hero: Total Session Load (gated on confidence) */}
       <Section>
         <View style={styles.heroContent}>
           {metrics.confidence.scoreShowable ? (
             <>
-              <ScoreRing score={totalLoad.score0To100} category={category} size={128} label="Total Load" />
+              <ScoreRing score={totalLoad.score0To100} category={category} size={128} label="Session Load" />
               {metrics.confidence.level !== 'high' ? (
                 <Text style={styles.confidenceNote}>
                   Confidence: {metrics.confidence.level}
@@ -82,11 +82,11 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
             </>
           ) : (
             <View style={styles.blockedBox}>
-              <Text style={styles.blockedTitle}>Training Load unavailable</Text>
+              <Text style={styles.blockedTitle}>Session Load unavailable</Text>
               <Text style={styles.blockedText}>
                 This run's data quality is too low for a confident score
                 {metrics.confidence.blocking.length ? `: ${metrics.confidence.blocking.join(', ')}` : ''}.
-                Re-run calibration and record a longer, cleaner session. Raw data is still in the Validation tab.
+                Re-run calibration and record a longer, cleaner session.
               </Text>
             </View>
           )}
@@ -97,9 +97,9 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
         </View>
       </Section>
 
-      <Section title="Training load breakdown" subtitle="Beta load uses SubStride mechanical data plus your entered effort">
+      <Section title="Session load breakdown" subtitle="Beta load uses SubStride mechanical data plus your entered effort">
         <MetricRow
-          label="Total Training Load"
+          label="Total Session Load"
           value={`${totalLoad.score0To100}/100`}
           detail={
             totalLoad.missingStreams.includes('perceived')
@@ -188,7 +188,13 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
         <MetricRow label="Workout" value={labelForWorkout(context.workoutType)} />
         <MetricRow label="Pain" value={`${context.painScore0To10}/10`} detail="Saved with session for baseline filtering" />
         <MetricRow label="Effort" value={`${context.perceivedEffort0To10}/10`} />
-        <MetricRow label="Baseline" value={baseline.status.replace('_', ' ')} detail={`${baseline.includedRunCount} similar run${baseline.includedRunCount === 1 ? '' : 's'} included`} />
+        {baseline.includedRunCount < 5 ? (
+          <MetricRow
+            label="Baseline"
+            value="Building"
+            detail={`${Math.min(5, baseline.includedRunCount)} of 5 clean baseline runs included`}
+          />
+        ) : null}
         <MetricRow label="Frames" value={`${computed.frames.length.toLocaleString()}`} detail="Calibrated pressure frames" />
         <MetricRow label="Steps detected" value={`${metrics.steps.length}`} detail="Gait events segmented" />
       </Section>
@@ -196,7 +202,7 @@ export function RunSummaryScreen({ computed, isRunning, onStartRun, onEndRun }: 
       {/* Limitations notice */}
       <View style={styles.notice}>
         <Text style={styles.noticeText}>
-          These are experimental beta indicators. Total Training Load combines Mechanical Load and
+          These are experimental beta indicators. Total Session Load combines Mechanical Load and
           Perceived Load when available. These metrics are not medical-grade measurements
           and should not be used as clinical guidance. Consult a professional for persistent pain or injury concern.
         </Text>

@@ -4,17 +4,21 @@ import { colors, radius, shadow } from '../theme';
 
 interface Props {
   title?: string;
+  titleAccessory?: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
   noPad?: boolean;
 }
 
-export function Section({ title, subtitle, children, noPad }: Props) {
+export function Section({ title, titleAccessory, subtitle, children, noPad }: Props) {
   return (
     <View style={styles.card}>
       {title ? (
         <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{title}</Text>
+            {titleAccessory}
+          </View>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
       ) : null}
@@ -40,7 +44,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderLight,
   },
-  title: { fontSize: 13, fontWeight: '700', color: colors.textTertiary, letterSpacing: 0.6, textTransform: 'uppercase' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  title: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: colors.textTertiary, letterSpacing: 0.6, textTransform: 'uppercase' },
   subtitle: { marginTop: 2, fontSize: 12, color: colors.textTertiary },
   body: { padding: 16 },
 });

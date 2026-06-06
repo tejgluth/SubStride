@@ -59,15 +59,15 @@ describe('mobile beta app model', () => {
     expect(computed.context.perceivedEffort0To10).toBe(7);
   });
 
-  it('builds baseline history from matching saved sessions', () => {
+  it('builds a hierarchical baseline from clean saved sessions', () => {
     const state = createDefaultBetaAppState();
 
     for (let i = 0; i < 3; i += 1) {
-      const computed = buildRunComputation(state, 'normal_easy_run', { durationSeconds: 5 });
+      const computed = buildRunComputation(state, 'normal_easy_run', { durationSeconds: 45 });
       state.sessionHistory = [...state.sessionHistory, computed.sessionRecord];
     }
 
-    const computed = buildRunComputation(state, 'normal_easy_run', { durationSeconds: 5 });
+    const computed = buildRunComputation(state, 'normal_easy_run', { durationSeconds: 45 });
 
     expect(computed.baseline.includedRunCount).toBe(3);
     expect(computed.baseline.status).toBe('baseline_enabled');

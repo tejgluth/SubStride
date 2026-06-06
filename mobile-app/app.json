@@ -22,11 +22,6 @@
         }
       ],
       "expo-status-bar"
-    ],
-    "extra": {
-      "supabaseUrl": "",
-      "supabaseAnonKey": "",
-      "openAiApiKey": ""
-    }
+    ]
   }
 }

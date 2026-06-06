@@ -7,6 +7,8 @@ import {
   buildAiPayload,
   buildOpenAiExplanationPrompt,
   canShowAiExplanation,
+  deterministicRunSummaryAndSuggestions,
+  deterministicRunSummaryAndSuggestionsContent,
   findDisallowedAiPayloadKeys,
   assertPromptDoesNotRequestInventedMetrics,
 } from "../src/explanations";
@@ -24,6 +26,9 @@ describe("AI guardrails", () => {
     expect("steps" in payload).toBe(false);
     expect("pressureRaw" in payload).toBe(false);
     expect("accel" in payload).toBe(false);
+    expect("pressureRegionPercentages" in payload).toBe(true);
+    expect((payload as any).pressureRegionPercentages.value.heel).toBeTypeOf("number");
+    expect((payload as any).pressureRegionPercentages.value.lateral).toBeTypeOf("number");
     for (const key of Object.keys(payload)) {
       expect(AI_ALLOWED_METRIC_KEYS).toContain(key);
     }
@@ -45,7 +50,37 @@ describe("AI guardrails", () => {
     expect(sys).toContain("pronation"); // it is named as a FORBIDDEN term
     expect(sys).toContain("do not use clinical movement terms");
     expect(sys).toContain("do not compute");
+    expect(sys).toContain("plain-language summary");
+    expect(sys).toContain("suggestions");
+    expect(sys).toContain("do not simply restate");
+    expect(sys).toContain("next run:");
+    expect(sys).toContain("form focus:");
+    expect(sys).toContain("pressureregionpercentages");
+    expect(sys).toContain("do not mention ai");
     expect(prompt.promptVersion).toBeTruthy();
+  });
+
+  it("local fallback produces runner-facing summary and suggestions", () => {
+    const input = {
+      metrics: cleanMetrics(),
+      profileContext: { runName: "Easy run", workoutType: "Easy run", surface: "Road", shoe: "Test shoe" },
+    };
+    const content = deterministicRunSummaryAndSuggestionsContent(input);
+    const text = deterministicRunSummaryAndSuggestions(input);
+    expect(text).toContain("Run summary");
+    expect(text).toContain("Key takeaways");
+    expect(text).toContain("Suggestions");
+    expect(content.summary).not.toMatch(/Total Training Load is \d+/);
+    expect(content.summary).toMatch(/^Easy run:/);
+    expect(content.summary).not.toContain("(");
+    expect(content.keyTakeaways.length).toBeGreaterThan(0);
+    expect(content.suggestions.length).toBeGreaterThan(0);
+    expect(content.suggestions[0]).toMatch(/^Next run:/);
+    expect(content.suggestions[1]).toMatch(/^Form focus:/);
+    expect(content.suggestions.join(" ").toLowerCase()).toMatch(/run|pace|breathing|turnover|stride|cadence|effort|surface|hills|speed|posture/);
+    expect(content.suggestions.join(" ").toLowerCase()).not.toMatch(/save|screen|dashboard|app|enter data|trend|compare/);
+    expect(text.toLowerCase()).not.toContain("openai");
+    expect(text.toLowerCase()).not.toContain("supabase");
   });
 
   it("the user prompt carries no raw frame/pressure data", () => {

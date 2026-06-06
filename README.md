@@ -9,6 +9,7 @@ This foundation includes:
 - `firmware`: PlatformIO / Arduino firmware for Seeed XIAO ESP32S3
 - `analytics`: deterministic TypeScript analytics package
 - `mobile-app`: Expo development-build React Native app shell
+- `supabase`: beta Auth, run storage, private artifacts, and AI Edge Function proxy
 - `sample-data`: generated simulator sessions
 - `docs`: setup, binary log format, schemas, analytics, and validation notes
 - `hardware`: locked hardware notes
@@ -37,6 +38,8 @@ npm run ios
 ```
 
 BLE requires an Expo development build, not Expo Go.
+
+Beta cloud setup lives in `docs/SUPABASE_BETA_BACKEND.md`. The OpenAI API key belongs in Supabase Edge Function secrets, never in the mobile app bundle.
 
 ## Claim Boundaries
 

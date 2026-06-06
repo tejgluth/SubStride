@@ -107,6 +107,10 @@ function logistic(value: number): number {
   return 1 / (1 + Math.exp(-value));
 }
 
+function ewmaAlpha(tauDays: number): number {
+  return 1 - Math.exp(-1 / tauDays);
+}
+
 function asTime(value: Date | string | number | undefined): number | null {
   if (value == null) return null;
   const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -137,13 +141,15 @@ function stdDev(values: number[]): number {
 }
 
 function streamLoadState(runs: NormalizedRunLoad[], asOfMs: number, stream: "mechanical" | "perceived" | "total"): LoadStreamState {
+  const acuteAlpha = ewmaAlpha(ACUTE_TAU_DAYS);
+  const chronicAlpha = ewmaAlpha(CHRONIC_TAU_DAYS);
   const acute = runs.reduce((sum, run) => {
     const ageDays = Math.max(0, (asOfMs - run.atMs) / MS_PER_DAY);
-    return sum + run[stream] * Math.exp(-ageDays / ACUTE_TAU_DAYS);
+    return sum + run[stream] * acuteAlpha * Math.exp(-ageDays / ACUTE_TAU_DAYS);
   }, 0);
   const chronic = runs.reduce((sum, run) => {
     const ageDays = Math.max(0, (asOfMs - run.atMs) / MS_PER_DAY);
-    return sum + run[stream] * Math.exp(-ageDays / CHRONIC_TAU_DAYS);
+    return sum + run[stream] * chronicAlpha * Math.exp(-ageDays / CHRONIC_TAU_DAYS);
   }, 0);
   const tolerance28d = dailyLoadsForWindow(runs, asOfMs, TOLERANCE_DAYS)
     .reduce((sum, day) => sum + day[stream], 0) / TOLERANCE_DAYS;
@@ -250,8 +256,10 @@ function riskSignalFor(input: {
   const fatigueDrift = clamp01(weightedRecentMean(input.runs, input.asOfMs, (run) => run.fatigue));
   const recoveryContext = clamp01(weightedRecentMean(input.runs, input.asOfMs, (run) => run.pain));
 
-  if (input.status === "no_data" || input.status === "session_only") {
-    reasonCodes.push("insufficient_history_no_risk_signal");
+  if (input.status === "no_data" || input.status === "session_only" || input.status === "acute_provisional") {
+    reasonCodes.push(input.status === "acute_provisional"
+      ? "insufficient_chronic_history_no_risk_signal"
+      : "insufficient_history_no_risk_signal");
     return {
       value0To100: null,
       level: "blocked",
@@ -321,7 +329,7 @@ export function computeLongitudinalTrainingLoad(
   const observedSpanDays = runs[0] ? Math.max(0, (asOfMs - runs[0].atMs) / MS_PER_DAY) : 0;
   const status = statusFor(runs.length, observedSpanDays);
   const confidence = confidenceFor(status);
-  const reasonCodes = [`status_${status}`, "continuous_exponential_7_42_day_decay"];
+  const reasonCodes = [`status_${status}`, "ewma_7_42_day_decay", "report3_raw_load_state_not_session_score"];
 
   const mechanical = streamLoadState(runs, asOfMs, "mechanical");
   const perceived = streamLoadState(runs, asOfMs, "perceived");

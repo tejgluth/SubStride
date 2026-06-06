@@ -191,6 +191,10 @@ function ratio(numerator: number, denominator: number): number {
   return denominator <= 0 ? 0 : numerator / denominator;
 }
 
+function roundTenth(value: number): number {
+  return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+}
+
 function durationMinutes(frames: CalibratedFrame[]): number {
   if (frames.length < 2) return 0;
   return Math.max(0, frames[frames.length - 1].timestampMs - frames[0].timestampMs) / 60000;
@@ -296,6 +300,16 @@ export function computeRunMetrics(frames: CalibratedFrame[], options: ComputeMet
   const heelRatio = ratio(regionTotals.heel, allRegionLoad);
   const midfootRatio = ratio(regionTotals.midfoot, allRegionLoad);
   const toeRatio = ratio(regionTotals.toe, allRegionLoad);
+  const sideRegionLoad = regionTotals.medial + regionTotals.center + regionTotals.lateral;
+  const pressureRegionPercentagesValue = {
+    heel: roundTenth(heelRatio * 100),
+    midfoot: roundTenth(midfootRatio * 100),
+    forefoot: roundTenth(ratio(regionTotals.forefoot, allRegionLoad) * 100),
+    toe: roundTenth(toeRatio * 100),
+    medial: roundTenth(ratio(regionTotals.medial, sideRegionLoad) * 100),
+    center: roundTenth(ratio(regionTotals.center, sideRegionLoad) * 100),
+    lateral: roundTenth(ratio(regionTotals.lateral, sideRegionLoad) * 100),
+  };
 
   // --- Mechanical Load: gain-invariant intensity x baseline volume factor ---
   // All absolute pressure magnitudes scale with calibration gain, so they must NOT enter the
@@ -420,6 +434,14 @@ export function computeRunMetrics(frames: CalibratedFrame[], options: ComputeMet
       limitations: commonLimitations,
       confidence: confidence.level
     },
+    pressureRegionPercentages: structuredMetric(
+      pressureRegionPercentagesValue,
+      "percent of total relative load; heel/midfoot/forefoot/toe sum to 100, and medial/center/lateral separately sum to 100",
+      ["editable zone map", "calibrated zone loads"],
+      ["region_load_percentages"],
+      commonLimitations,
+      { confidence: confidence.level }
+    ),
     impactLoad: metric(accelImpactG, "g over 1g", ["accel magnitude deviation (rotation invariant)"], ["imu_magnitude_impact_proxy"], [...commonLimitations, "IMU at ~104 Hz cannot capture true impact transients; this is an experimental proxy, not ground reaction force."], { confidence: confidence.level, experimental: true }),
     fatigueShift: metric(fatigueShiftValue, "percentage-point shift", ["first half forefoot/toe ratio", "second half forefoot/toe ratio"], ["first_half_second_half_shift", forefootShiftSigned >= 0 ? "forefoot_increasing" : "forefoot_decreasing"], commonLimitations, { confidence: confidence.level, experimental: true }),
     mechanicalLoad: structuredMetric(mechanicalLoadValue, "0-100 score + relative dose", ["pressure impulse", "IMU impact proxy", "load-rate ratio", "peak/median spikiness", "directional fatigue shift"], mechanicalReasonCodes, loadLimitations, { confidence: confidence.level }),
@@ -521,10 +543,10 @@ export function combineFootMetrics(left?: RunMetrics, right?: RunMetrics): RunMe
   };
 
   // Distributions are averaged element-wise (the old code dropped the right foot entirely).
-  const avgDistribution = (
-    a: MetricValue<Record<string, number>>,
-    b: MetricValue<Record<string, number>>
-  ): MetricValue<Record<string, number>> => {
+  const avgDistribution = <T extends Record<string, number>>(
+    a: MetricValue<T>,
+    b: MetricValue<T>
+  ): MetricValue<T> => {
     const keys = new Set([...Object.keys(a.value), ...Object.keys(b.value)]);
     const value: Record<string, number> = {};
     keys.forEach((key) => {
@@ -532,7 +554,7 @@ export function combineFootMetrics(left?: RunMetrics, right?: RunMetrics): RunMe
     });
     return {
       ...a,
-      value,
+      value: value as T,
       contributingData: [...new Set([...a.contributingData, ...b.contributingData])],
       reasonCodes: [...new Set([...a.reasonCodes, ...b.reasonCodes, "left_right_averaged"])],
       confidence: a.confidence && b.confidence ? worseConfidence(a.confidence, b.confidence) : a.confidence,
@@ -570,6 +592,7 @@ export function combineFootMetrics(left?: RunMetrics, right?: RunMetrics): RunMe
     loadRateProxy: avg(left.loadRateProxy, right.loadRateProxy),
     medialLateralBalance: avg(left.medialLateralBalance, right.medialLateralBalance),
     heelMidForeToeDistribution: avgDistribution(left.heelMidForeToeDistribution, right.heelMidForeToeDistribution),
+    pressureRegionPercentages: avgDistribution(left.pressureRegionPercentages, right.pressureRegionPercentages),
     impactLoad: avg(left.impactLoad, right.impactLoad),
     fatigueShift: avg(left.fatigueShift, right.fatigueShift),
     mechanicalLoad,

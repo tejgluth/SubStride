@@ -10,7 +10,9 @@ npm run ios
 
 BLE requires a development build, not Expo Go. The app is local-first and works without cloud keys by using simulator sessions from `@substride/analytics`.
 
-Optional later keys:
+Beta cloud keys:
 
-- Supabase URL and anon key in `app.json`/Expo config for cloud sync
-- OpenAI API key for AI explanations; deterministic metrics work without it
+- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `mobile-app/.env`
+- OpenAI runs through the Supabase `explain-run` Edge Function; never put an OpenAI key in this app
+
+See `docs/SUPABASE_BETA_BACKEND.md` for backend deploy steps.

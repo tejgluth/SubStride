@@ -118,7 +118,7 @@ export function ValidationScreen({ metrics, calibration, frames }: Props) {
           value={metrics.perceivedLoad.value.score0To100 == null ? 'Not set' : `${metrics.perceivedLoad.value.score0To100}/100`}
           detail={metrics.perceivedLoad.value.rawRpeMinutes == null ? 'No RPE-minutes' : `${metrics.perceivedLoad.value.rawRpeMinutes.toFixed(0)} RPE-minutes`}
         />
-        <MetricRow label="Total Training Load" value={`${metrics.totalTrainingLoad.value.score0To100}/100`} />
+        <MetricRow label="Total Session Load" value={`${metrics.totalTrainingLoad.value.score0To100}/100`} />
         <MetricRow label="Training Strain alias" value={`${metrics.trainingStrain.value}/100`} />
       </Section>
 

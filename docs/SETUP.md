@@ -44,9 +44,15 @@ cd mobile-app
 npm run ios
 ```
 
-The app starts in simulator mode and does not require hardware, login, Supabase keys, or an OpenAI key.
+The app starts in simulator mode and does not require hardware, login, or Supabase keys.
 
-## Optional Keys Later
+## Beta Cloud Backend
 
-- Supabase URL/anon key: enables future sync path
-- OpenAI API key: enables explanation generation only; numerical scores remain deterministic
+Supabase Auth, run sync, private run storage, and AI summaries are scaffolded in `supabase/`.
+
+The mobile app only uses public Supabase values:
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+The OpenAI key is stored as a Supabase Edge Function secret, not in the app. See `docs/SUPABASE_BETA_BACKEND.md`.

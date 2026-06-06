@@ -223,6 +223,16 @@ export interface TotalTrainingLoadValue {
   missingStreams: string[];
 }
 
+export interface PressureRegionPercentages extends Record<string, number> {
+  heel: number;
+  midfoot: number;
+  forefoot: number;
+  toe: number;
+  medial: number;
+  center: number;
+  lateral: number;
+}
+
 export interface RunMetrics {
   sessionId: string;
   foot: FootSide | "both";
@@ -234,6 +244,7 @@ export interface RunMetrics {
   loadRateProxy: MetricValue;
   medialLateralBalance: MetricValue;
   heelMidForeToeDistribution: MetricValue<Record<string, number>>;
+  pressureRegionPercentages: MetricValue<PressureRegionPercentages>;
   impactLoad: MetricValue;
   fatigueShift: MetricValue;
   /** Beta-safe mechanical load from pressure + IMU only. */

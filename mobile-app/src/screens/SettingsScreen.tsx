@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { ShoeProfile, UserProfile } from '@substride/analytics';
 import { Section } from '../components/Section';
@@ -14,6 +14,7 @@ import {
   type SurfaceTag,
   type WorkoutTag,
 } from '../domain/betaAppModel';
+import type { CloudAuthState, CloudSyncStatus } from '../services/supabaseClient';
 import { colors, radius } from '../theme';
 
 interface Props {
@@ -23,11 +24,17 @@ interface Props {
   shoes: ShoeProfile[];
   pods: BetaPod[];
   context: BetaSessionContext;
+  onUpdateProfile: (patch: Partial<UserProfile>) => void;
   onUpdateContext: (patch: Partial<BetaSessionContext>) => void;
   onAddShoe: () => void;
   onRenameShoe: (shoeId: string, name: string) => void;
   onSetPodConnection: (podId: string, connection: BetaPodConnection) => void;
   onClearLocalData: () => void;
+  cloudAuth: CloudAuthState;
+  cloudSyncStatus: CloudSyncStatus;
+  onCloudSignIn: (email: string, password: string) => Promise<void>;
+  onCloudSignUp: (email: string, password: string) => Promise<void>;
+  onCloudSignOut: () => Promise<void>;
 }
 
 const CONNECTION_LABELS: Record<BetaPodConnection, string> = {
@@ -43,13 +50,27 @@ export function SettingsScreen({
   shoes,
   pods,
   context,
+  onUpdateProfile,
   onUpdateContext,
   onAddShoe,
   onRenameShoe,
   onSetPodConnection,
   onClearLocalData,
+  cloudAuth,
+  cloudSyncStatus,
+  onCloudSignIn,
+  onCloudSignUp,
+  onCloudSignOut,
 }: Props) {
   const activeShoe = shoes.find((shoe) => shoe.id === context.shoeId) ?? shoes[0];
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [weightPoundsText, setWeightPoundsText] = useState(weightKgToPoundsText(profile.weightKg));
+  const [authBusy, setAuthBusy] = useState(false);
+
+  useEffect(() => {
+    setWeightPoundsText(weightKgToPoundsText(profile.weightKg));
+  }, [profile.weightKg]);
 
   const confirmClear = () => {
     Alert.alert('Clear local beta data?', 'This resets locally saved shoes, pods, and session history.', [
@@ -58,21 +79,107 @@ export function SettingsScreen({
     ]);
   };
 
+  const runAuthAction = async (action: 'sign_in' | 'sign_up' | 'sign_out') => {
+    setAuthBusy(true);
+    try {
+      if (action === 'sign_in') await onCloudSignIn(email, password);
+      if (action === 'sign_up') await onCloudSignUp(email, password);
+      if (action === 'sign_out') await onCloudSignOut();
+      if (action === 'sign_in' || action === 'sign_up') setPassword('');
+    } catch (error) {
+      Alert.alert('Cloud account error', error instanceof Error ? error.message : 'The cloud action failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const updateWeightPounds = (value: string) => {
+    const sanitized = value.replace(/[^0-9.]/g, '');
+    setWeightPoundsText(sanitized);
+    if (!sanitized.trim()) {
+      onUpdateProfile({ weightKg: undefined });
+      return;
+    }
+    const pounds = Number(sanitized);
+    if (Number.isFinite(pounds) && pounds > 0 && pounds < 700) {
+      onUpdateProfile({ weightKg: pounds / 2.2046226218 });
+    }
+  };
+
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
-      <View style={styles.hardwareNotice}>
-        <Text style={styles.hardwareNoticeTitle}>Hardware error detection</Text>
-        <Text style={styles.hardwareNoticeText}>
-          If a pod reports impossible readings, stuck sensors, saturation, dropped frames, or a failed calibration,
-          SubStride will show a hardware error and the run should not be used for results until the setup is fixed.
-        </Text>
-      </View>
-
       <Section title="Profile">
-        <MetricRow label="Display name" value={profile.displayName} />
-        <MetricRow label="Weekly mileage" value={profile.weeklyMileageKm ? `${profile.weeklyMileageKm} km` : 'Not set'} />
-        <MetricRow label="Body weight" value={profile.weightKg ? `${profile.weightKg} kg` : 'Not set'} />
-        <MetricRow label="Data storage" value={profile.localOnly ? 'Local only' : 'Cloud enabled'} detail="Beta build keeps all runner data on device" />
+        <Text style={styles.groupLabel}>Display name</Text>
+        <TextInput
+          style={styles.profileInput}
+          value={profile.displayName}
+          onChangeText={(displayName) => onUpdateProfile({ displayName })}
+          placeholder="Display name"
+          placeholderTextColor={colors.textTertiary}
+        />
+        <Text style={styles.groupLabel}>Weight</Text>
+        <View style={styles.weightInputRow}>
+          <TextInput
+            style={[styles.profileInput, styles.weightInput]}
+            value={weightPoundsText}
+            onChangeText={updateWeightPounds}
+            keyboardType="decimal-pad"
+            placeholder="Weight"
+            placeholderTextColor={colors.textTertiary}
+          />
+          <Text style={styles.weightUnit}>lb</Text>
+        </View>
+        <MetricRow label="Average weekly mileage" value={formatWeeklyMileage(profile.weeklyMileageKm)} detail="Auto-updated from saved run distance when distance data is available" />
+        <MetricRow label="Data storage" value={cloudAuth.user ? 'Cloud enabled' : 'Local only'} detail={cloudStatusLabel(cloudSyncStatus)} />
+      </Section>
+
+      <Section title="Beta cloud account" subtitle="Runs autosync after sign-in; this account also enables AI summaries">
+        {!cloudAuth.configured ? (
+          <View style={styles.cloudBox}>
+            <Text style={styles.cloudTitle}>Cloud setup missing</Text>
+            <Text style={styles.cloudText}>
+              Cloud sync is not configured for this build.
+            </Text>
+          </View>
+        ) : cloudAuth.user ? (
+          <View style={styles.cloudBox}>
+            <Text style={styles.cloudTitle}>{cloudAuth.user.email ?? 'Signed in beta user'}</Text>
+            <Text style={styles.cloudText}>{cloudStatusLabel(cloudSyncStatus)}</Text>
+            <View style={styles.cloudActions}>
+              <TouchableOpacity style={[styles.cloudBtn, styles.cloudBtnSecondary]} onPress={() => runAuthAction('sign_out')} disabled={authBusy}>
+                <Text style={[styles.cloudBtnText, styles.cloudBtnTextSecondary]}>Sign out</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.cloudBox}>
+            <TextInput
+              style={styles.cloudInput}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="Email"
+              placeholderTextColor={colors.textTertiary}
+            />
+            <TextInput
+              style={styles.cloudInput}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder="Password"
+              placeholderTextColor={colors.textTertiary}
+            />
+            <View style={styles.cloudActions}>
+              <TouchableOpacity style={styles.cloudBtn} onPress={() => runAuthAction('sign_in')} disabled={authBusy}>
+                <Text style={styles.cloudBtnText}>{authBusy ? 'Working...' : 'Sign in'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.cloudBtn, styles.cloudBtnSecondary]} onPress={() => runAuthAction('sign_up')} disabled={authBusy}>
+                <Text style={[styles.cloudBtnText, styles.cloudBtnTextSecondary]}>Create beta account</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Section>
 
       <Section title="Post-run context" subtitle="Saved with every session and used for baseline filtering">
@@ -194,14 +301,18 @@ export function SettingsScreen({
         />
       </Section>
 
-      <Section title="AI interpretation">
-        <View style={styles.apiKeyBox}>
-          <Text style={styles.apiKeyPlaceholder}>OpenAI API key not configured</Text>
-        </View>
-        <Text style={styles.apiNote}>
-          AI summaries use computed metrics and context only. Raw pressure frames stay local in this beta build.
-        </Text>
-      </Section>
+      {devMode ? (
+        <Section title="AI diagnostics">
+          <View style={styles.apiKeyBox}>
+            <Text style={styles.apiKeyPlaceholder}>
+              {cloudAuth.user ? 'AI function available through cloud account' : 'Sign in required for AI summaries'}
+            </Text>
+          </View>
+          <Text style={styles.apiNote}>
+            Developer check only: summaries are generated from computed metrics and never use raw frames.
+          </Text>
+        </Section>
+      ) : null}
 
       <Section title="Developer mode">
         <View style={styles.devRow}>
@@ -233,6 +344,26 @@ export function SettingsScreen({
   );
 }
 
+function cloudStatusLabel(status: CloudSyncStatus): string {
+  if (status.state === 'idle') return 'Autosync ready';
+  if (status.state === 'syncing') return 'Cloud sync in progress';
+  if (status.state === 'synced') return `Last cloud sync ${new Date(status.at).toLocaleTimeString()}`;
+  if (status.state === 'error') return `Cloud sync error: ${status.message}`;
+  if (status.reason === 'not_signed_in') return 'Sign in to sync beta runs';
+  return 'Configure cloud sync to enable saved runs';
+}
+
+function weightKgToPoundsText(weightKg: number | undefined): string {
+  if (!weightKg || !Number.isFinite(weightKg)) return '';
+  return String(Math.round(weightKg * 2.2046226218));
+}
+
+function formatWeeklyMileage(weeklyMileageKm: number | undefined): string {
+  if (!weeklyMileageKm || !Number.isFinite(weeklyMileageKm)) return 'Not enough distance data';
+  const miles = weeklyMileageKm * 0.621371;
+  return `${miles.toFixed(1)} mi/week`;
+}
+
 function TagButton({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   return (
     <TouchableOpacity style={[styles.tag, selected && styles.tagSelected]} onPress={onPress} activeOpacity={0.8}>
@@ -260,9 +391,10 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
 
 const styles = StyleSheet.create({
   groupLabel: { marginBottom: 8, fontSize: 11, fontWeight: '800', color: colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  hardwareNotice: { marginBottom: 12, padding: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warningBorder, backgroundColor: colors.warningLight },
-  hardwareNoticeTitle: { fontSize: 13, fontWeight: '800', color: colors.warning },
-  hardwareNoticeText: { marginTop: 4, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  profileInput: { minHeight: 42, marginBottom: 14, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCard, color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  weightInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  weightInput: { flex: 1, marginBottom: 0 },
+  weightUnit: { width: 30, fontSize: 13, fontWeight: '800', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   tag: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.full, backgroundColor: colors.bgCardAlt, borderWidth: 1, borderColor: colors.border },
   tagSelected: { backgroundColor: colors.brandLight, borderColor: colors.brand },
@@ -275,6 +407,15 @@ const styles = StyleSheet.create({
   stepperBtn: { width: 30, height: 30, borderRadius: radius.sm, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   stepperBtnText: { fontSize: 18, fontWeight: '800', color: colors.brand },
   stepperValue: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
+  cloudBox: { padding: 12, backgroundColor: colors.bgCardAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: 10 },
+  cloudTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+  cloudText: { fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  cloudInput: { minHeight: 42, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCard, color: colors.textPrimary, fontSize: 14 },
+  cloudActions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  cloudBtn: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', minHeight: 40, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: colors.brand },
+  cloudBtnSecondary: { backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  cloudBtnText: { fontSize: 13, fontWeight: '800', color: colors.bgCard },
+  cloudBtnTextSecondary: { color: colors.textPrimary },
   shoeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderLight, marginBottom: 8 },
   shoeSelect: { flexShrink: 0 },
   rowSelected: { borderColor: colors.brand, backgroundColor: colors.brandLight },

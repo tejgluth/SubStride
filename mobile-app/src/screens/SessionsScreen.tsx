@@ -20,7 +20,7 @@ const SCENARIOS: Scenario[] = [
     id: 'normal_easy_run',
     label: 'Normal easy run',
     description: 'Balanced load pattern at comfortable pace',
-    expectedPatterns: ['Balanced load', 'Stable fatigue shift', 'Moderate Training Load'],
+    expectedPatterns: ['Balanced load', 'Stable fatigue shift', 'Moderate Session Load'],
     icon: 'walk-outline',
   },
   {

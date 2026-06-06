@@ -13,8 +13,8 @@ const SLIDES: { icon: IoniconName; title: string; body: string; note: string }[]
   {
     icon: 'shield-checkmark-outline',
     title: 'SubStride Lab Beta',
-    body: 'A research tool for understanding foot load patterns during running. This is an early beta — data is local, no account required.',
-    note: 'All data stays on your device in this build.',
+    body: 'A research tool for understanding foot load patterns during running. This is an early beta with cloud accounts for saved runs and AI summaries.',
+    note: 'Computed metrics sync to your cloud account after sign-in.',
   },
   {
     icon: 'hardware-chip-outline',
@@ -31,7 +31,7 @@ const SLIDES: { icon: IoniconName; title: string; body: string; note: string }[]
   {
     icon: 'analytics-outline',
     title: 'What you get',
-    body: 'Total Training Load, Mechanical Load, Perceived Load, pressure heatmaps, gait patterns, and load distribution across your foot. Compared to your personal baseline as it builds over sessions.',
+    body: 'Total Session Load, Mechanical Load, Perceived Load, pressure heatmaps, gait patterns, and load distribution across your foot. Compared to your personal baseline as it builds over sessions.',
     note: 'These are experimental load indicators — not medical measurements.',
   },
   {

@@ -14,6 +14,7 @@ import {
   type CalibratedFrame,
   type CalibrationProfile,
   type FootSide,
+  type RunSummaryAndSuggestionsContent,
   type Pod,
   type RunMetrics,
   type Session,
@@ -48,9 +49,17 @@ export interface BetaSessionRecord {
   label: string;
   scenario: SimulatorSession['scenario'];
   metrics: RunMetrics;
+  frames?: CalibratedFrame[];
   context: BetaSessionContext;
   baselineStatus: BaselineSummary['status'];
   expectedPatterns: string[];
+  aiSummary?: {
+    requestKey: string;
+    promptVersion: string;
+    generatedAt: string;
+    source: 'local' | 'cloud';
+    content: RunSummaryAndSuggestionsContent;
+  };
 }
 
 export interface BetaRunComputation {
@@ -102,7 +111,6 @@ const DEFAULT_PROFILE: UserProfile = {
   id: 'local-runner',
   displayName: 'Runner',
   createdAt: '2026-01-01T00:00:00.000Z',
-  weeklyMileageKm: 32,
   localOnly: true,
 };
 
@@ -174,6 +182,10 @@ export function labelForWorkout(workoutType: WorkoutTag): string {
   return WORKOUT_OPTIONS.find((option) => option.id === workoutType)?.label ?? workoutType;
 }
 
+export function runNameForContext(context: Pick<BetaSessionContext, 'workoutType'>): string {
+  return labelForWorkout(context.workoutType);
+}
+
 export function activeShoeForContext(shoes: ShoeProfile[], context: BetaSessionContext): ShoeProfile | undefined {
   return shoes.find((shoe) => shoe.id === context.shoeId) ?? shoes[0];
 }
@@ -220,6 +232,25 @@ export function addShoeProfile(shoes: ShoeProfile[], input?: Partial<ShoeProfile
   };
 }
 
+export function framesForSessionRecord(record: BetaSessionRecord, pods: BetaPod[]): CalibratedFrame[] {
+  if (record.frames?.length) return record.frames;
+  if (record.session.source !== 'simulator') return [];
+
+  const durationSeconds = durationSecondsForRecord(record);
+  const footSides = footSidesForRecord(record, pods);
+  return footSides.flatMap((foot) => {
+    const rawSession = generateSimulatorSession(record.scenario, { durationSeconds, foot });
+    const pod = pods.find((candidate) => candidate.assignedFoot === foot);
+    const podId = pod?.id ?? `SIM-${foot.toUpperCase()}`;
+    const framesForPod = rawSession.frames.map((frame) => ({
+      ...frame,
+      sessionId: record.session.id,
+      podId,
+    }));
+    return applyCalibration(framesForPod, makeSimulatorCalibration(podId, foot));
+  }).sort((a, b) => a.timestampMs - b.timestampMs || a.foot.localeCompare(b.foot));
+}
+
 export function buildRunComputation(
   state: BetaAppState,
   scenario: SimulatorSession['scenario'],
@@ -232,6 +263,7 @@ export function buildRunComputation(
   const simulatedSides = footSides.length > 0 ? footSides : (['left'] as FootSide[]);
   const durationSeconds = options.durationSeconds ?? 45;
   const asOf = options.asOf ?? new Date();
+  const runName = runNameForContext(context);
 
   const expectedMode = context.workoutType === 'walk' ? 'walk' : context.surface === 'treadmill' ? 'treadmill' : 'run';
   const sideComputations = simulatedSides.map((foot) => {
@@ -247,7 +279,7 @@ export function buildRunComputation(
   const session = {
     ...sideComputations[0].rawSession,
     id: `sim-${scenario}-${simulatedSides.join('-')}`,
-    label: sideComputations.length > 1 ? `${sideComputations[0].rawSession.label} · both feet` : sideComputations[0].rawSession.label,
+    label: runName,
     frames: sideComputations.flatMap((item) => item.rawSession.frames),
   };
   const calibrations = sideComputations.map((item) => item.calibration);
@@ -276,12 +308,13 @@ export function buildRunComputation(
   const prompt = buildOpenAiExplanationPrompt({
     metrics: finalMetrics,
     profileContext: {
-      shoe: activeShoe ? [activeShoe.brand, activeShoe.model ?? activeShoe.name].filter(Boolean).join(' ') : 'Unknown shoe',
+      runName,
+      shoe: activeShoe?.name ?? 'Unknown shoe',
       surface: labelForSurface(context.surface),
       workoutType: labelForWorkout(context.workoutType),
     },
   });
-  const sessionRecord = makeSessionRecord(state, scenario, session, finalMetrics, context, baseline, asOf, durationSeconds);
+  const sessionRecord = makeSessionRecord(state, scenario, session, finalMetrics, frames, context, baseline, asOf, durationSeconds);
   const longitudinalLoad = computeLongitudinalTrainingLoad(
     [...state.sessionHistory, sessionRecord].map((record) => ({
       session: record.session,
@@ -324,19 +357,70 @@ function buildBaselineRuns(
   state: BetaAppState,
   context: BetaSessionContext
 ): BaselineInputRun[] {
-  return state.sessionHistory
-    .filter((record) => (
-      record.context.shoeId === context.shoeId
-      && record.context.surface === context.surface
-      && record.context.workoutType === context.workoutType
-    ))
-    .map((record) => ({
-      sessionId: record.session.id,
-      userId: state.profile.id,
-      metrics: record.metrics,
-      calibrationQuality: 'pass' as const,
-      painScore0To10: record.context.painScore0To10,
-    }));
+  const cleanHistory = state.sessionHistory.filter((record) => (
+    record.metrics.confidence.scoreShowable
+    && record.context.painScore0To10 <= 3
+  ));
+  const tiers: Array<{ minimum: number; records: BetaSessionRecord[] }> = [
+    {
+      minimum: 7,
+      records: cleanHistory.filter((record) => (
+        record.context.shoeId === context.shoeId
+        && record.context.surface === context.surface
+        && record.context.workoutType === context.workoutType
+      )),
+    },
+    {
+      minimum: 5,
+      records: cleanHistory.filter((record) => (
+        record.context.shoeId === context.shoeId
+        && record.context.workoutType === context.workoutType
+      )),
+    },
+    {
+      minimum: 5,
+      records: cleanHistory.filter((record) => (
+        record.context.surface === context.surface
+        && record.context.workoutType === context.workoutType
+      )),
+    },
+    {
+      minimum: 3,
+      records: cleanHistory.filter((record) => record.context.workoutType === context.workoutType),
+    },
+    {
+      minimum: 0,
+      records: cleanHistory,
+    },
+  ];
+  const selected = tiers.find((tier) => tier.records.length >= tier.minimum)?.records ?? [];
+  return selected.map((record) => ({
+    sessionId: record.session.id,
+    userId: state.profile.id,
+    metrics: record.metrics,
+    calibrationQuality: 'pass' as const,
+    painScore0To10: record.context.painScore0To10,
+  }));
+}
+
+function durationSecondsForRecord(record: BetaSessionRecord): number {
+  const startedAt = record.session.startedAt ? new Date(record.session.startedAt).getTime() : NaN;
+  const endedAt = record.session.endedAt ? new Date(record.session.endedAt).getTime() : NaN;
+  if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt > startedAt) {
+    return Math.max(1, Math.round((endedAt - startedAt) / 1000));
+  }
+  return 45;
+}
+
+function footSidesForRecord(record: BetaSessionRecord, pods: BetaPod[]): FootSide[] {
+  const fromPodSessionIds = (['left', 'right'] as FootSide[]).filter((foot) => (
+    record.session.podSessionIds.some((id) => id.toLowerCase().includes(foot))
+  ));
+  if (fromPodSessionIds.length > 0) return fromPodSessionIds;
+  if (record.metrics.foot === 'both') return ['left', 'right'];
+  if (record.metrics.foot === 'left' || record.metrics.foot === 'right') return [record.metrics.foot];
+  const connected = connectedFootSides(pods);
+  return connected.length > 0 ? connected : ['left'];
 }
 
 function makeSessionRecord(
@@ -344,6 +428,7 @@ function makeSessionRecord(
   scenario: SimulatorSession['scenario'],
   simulatorSession: SimulatorSession,
   metrics: RunMetrics,
+  frames: CalibratedFrame[],
   context: BetaSessionContext,
   baseline: BaselineSummary,
   asOf: string | Date | number,
@@ -369,9 +454,10 @@ function makeSessionRecord(
       podSessionIds: connectedFootSides(state.pods).map((foot) => `sim-${foot}-${state.sessionHistory.length + 1}`),
       syncStatus: 'synced',
     },
-    label: simulatorSession.label,
+    label: runNameForContext(context),
     scenario,
     metrics,
+    frames,
     context,
     baselineStatus: baseline.status,
     expectedPatterns: simulatorSession.expectedPatterns,
